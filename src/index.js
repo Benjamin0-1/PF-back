@@ -1666,12 +1666,13 @@ app.put('/update-product-category', isAuthenticated, isAdmin, async(req, res) =>
 
 module.exports.bcrypt = bcrypt; // <-- heroku
 
-const PORT = 3001
-sequelize.sync({alter: false}).then(() => { // <- alter and force set to false.
+sequelize.sync({alter: false}).then(() => {
+    const PORT = process.env.PORT || 3001; 
     app.listen(PORT, () => {
         console.log(`Server running on Port: ${PORT}`);
-    })
+    });
 });
+
 
 /*
 esto falta implementar.
