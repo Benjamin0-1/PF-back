@@ -1663,6 +1663,8 @@ app.put('/update-product-category', isAuthenticated, isAdmin, async(req, res) =>
 
 // ruta para que un admin pueda eliminar un producto de una categoria.
 
+module.exports.bcrypt = bcrypt; // <-- heroku
+
 const PORT = 3001
 sequelize.sync({alter: false}).then(() => { // <- alter and force set to false.
     app.listen(PORT, () => {
