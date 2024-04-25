@@ -58,7 +58,18 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: true, // PUEDE SER NULL PARA USUARIOS LOCALES.
         unique: true 
-    } 
+    },
+
+    banned: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+        defaultValue: false
+    },
+    
+    ban_expiration: {
+        type: DataTypes.DATE,
+        allowNull: true
+    }
 });
 
 

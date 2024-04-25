@@ -1712,7 +1712,7 @@ app.get('/products/reported', isAuthenticated, isAdmin, async (req, res) => {
     }
 });
 
-//ruta de filtros combinados: falta PROBAR.
+//ruta de filtros combinados, tambien se puede agregar rating.
 app.get('/products/filter/:start/:end/:category', async (req, res) => {
     const { start, end, category } = req.params;
 
@@ -1742,6 +1742,67 @@ app.get('/products/filter/:start/:end/:category', async (req, res) => {
     }
 });
 
+async function isUserBanned(req, res, next) {
+    try {
+        const userId = req.user.userId;
+        const user = await User.findByPk(userId);
+
+        if (!user) {
+            return res.status(400).json('Usuario no encontrado');
+        }
+
+        if (user.banned && user.banExpiration && new Date() > new Date(user.banExpiration)) {
+            user.banned = false;
+            user.banExpiration = null;
+            await user.save();
+        }
+
+        if (user.banned) {
+            return res.status(403).json({ error: 'Tu cuenta aún está baneada' });
+        }
+
+        // If user is not banned, proceed to the next middleware or route handler
+        next();
+    } catch (error) {
+        console.error("Error checking ban status:", error);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+};
+
+
+
+
+// ruta para que un admin pueda banear a un usuario (en horas). falta comprobar que FUNCIONE.
+app.post('/ban/:userId', isAuthenticated, isAdmin, async(req, res) => {
+    const userId = req.params.userId;
+    const banDurationHours = req.body.banDurationHours;
+
+    if (!userId || !banDurationHours) {
+        return res.status(400).json('Faltan datos obligatorios')
+    };
+    
+    try {
+        const user = await User.findByPk(userId) 
+        if (!user) {return res.status(404).json(`Usuario con id: ${userId} no existe`)};
+
+        const banExpiration = new Date();
+        banExpiration.setMinutes(banExpiration.getMinutes() + (banDurationHours * 60)); // Convert hours to minutes
+
+        await user.update({
+            banned: true,
+            ban_expiration: banExpiration // Update the ban expiration time
+        });
+
+        return res.json(`Usuario con id: ${userId} baneado por ${banDurationHours} horas.`);
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+}); // <-- solo falta comprobar que el ban haya sido levantado.
+
+app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
+    res.send('YOU ARE NOT BANNED ')
+});
 
 
 module.exports.bcrypt = bcrypt; // <-- heroku
