@@ -23,11 +23,21 @@ const Review = sequelize.define('Review', {
         allowNull: false
     },
     // rating, luego en las rutas se agregara logica para que sea entre 1 y 5, debe ser un float.
-  //  rating: {
-   //     type: DataTypes.FLOAT,
-   //     allowNull: true
-   // }
+    rating: {
+        type: DataTypes.FLOAT,
+        allowNull: true
+    }
 });
+
+Review.beforeDestroy(async (instance, options) => {
+    try {
+        await sequelize.models.Review.destroy({ where: { productId: instance.productId }});
+        
+    } catch (error) {
+        console.error(`Error deleting related reviews for product: ${error}`);
+    }
+});
+
 
 // associations.js 
 /*

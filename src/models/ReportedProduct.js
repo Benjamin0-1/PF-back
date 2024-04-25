@@ -43,7 +43,12 @@ async function sendMail(transporter, to, subject, message) {
 const ReportedProduct = sequelize.define('ReportedProduct', {
     productId: {
         type: DataTypes.INTEGER,
-        allowNull: false
+        allowNull: false,
+        references: {
+            model: 'Products', 
+            key: 'id',       
+            onDelete: 'CASCADE', // This will automatically delete reported products when the referenced product is deleted
+        }
     },
     userId: {
         type: DataTypes.INTEGER,
@@ -51,7 +56,7 @@ const ReportedProduct = sequelize.define('ReportedProduct', {
     }
 });
 
-// Function to check report counts and delete products if necessary
+// BUGS: <-- EL COUNT NO SE ACTUALIZA.
 async function checkReportCounts() {
     try {
         console.log('Checking report counts...');
@@ -69,7 +74,7 @@ async function checkReportCounts() {
 
         for (const product of products) {
             console.log('Checking product:', product.productId);
-            if (product.reportCount > 2) {
+            if (product.reportCount > 1) {
                 console.log('Product report count exceeds threshold:', product.productId);
 
                 const productId = product.productId;
@@ -110,6 +115,18 @@ async function checkReportCounts() {
 
 
 // Set interval to check report counts every 24 hours
-setInterval(checkReportCounts, 24 * 60 );
+setInterval(checkReportCounts, 24 * 60000);
+
+ReportedProduct.beforeDestroy(async (instance, options) => {
+    try {
+        // Delete all reported products related to the product being deleted
+        await ReportedProduct.destroy({ where: { productId: instance.productId }});
+    } catch (error) {
+        console.error(`Error deleting related reported products for product: ${error}`);
+    }
+});
+
+
+
 
 module.exports = ReportedProduct;

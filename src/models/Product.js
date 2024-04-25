@@ -4,6 +4,7 @@ const Category = require('./Category');
 const Brand = require('./Brand');
 const Review = require('./Review');
 const Favorite = require('./Favorite');
+const ReportedProduct = require('./ReportedProduct');
 //const Rating = require('./Rating')
 
 const Product = sequelize.define('Product', {
@@ -87,8 +88,8 @@ Product.beforeDestroy(async (product, option) => {
     try {
         await sequelize.models.Description.destroy({where: {productId: product.id}});
         await sequelize.models.Review.destroy({where: {productId: product.id}});
-        //await sequelize.models.Rating.destroy({where: {productId: product.id}})
         await sequelize.models.Favorite.destroy({where: {productId: product.id}});
+        await sequelize.models.ReportedProduct.destroy({where: {productId: product.id}})
 
     } catch (error) {
         console.log(`Error eliminando datos asociados: ${error}`);

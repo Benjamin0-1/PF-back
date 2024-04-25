@@ -737,16 +737,26 @@ app.get('/profile-info', isAuthenticated, async(req, res) => {
 });
 
 // ruta para crear review, un usuario solamente puede escribir una review de un producto una vez.
-// EXTRA: <-- implementar logica extra para que un usuario haya comprado el product (PaymentHistory) antes de poder ßdejar una review del mismo
+// se verifica que el usuario haya comprado el producto antes de poder escribir una review.
 app.post('/review', isAuthenticated, async (req, res) => {
     const userId = req.user.userId;
-    const { productId, review } = req.body;
+    const { productId, review, rating } = req.body; // <-- AGREGAR RATING.
 
     console.log(`User id: ${userId}`); // array de palabras que no sigan las guias
 
     if (!review) {
         return res.status(400).json('Debe incluir una review');
     }
+
+    if (!rating) {
+        return res.status(400).json('Falta incluir rating.')
+    };
+
+    // el rating debe ser entre 1 y 5, tambien se puede tener 3.2, 4.5, etc.
+    if (!/^(\d+(\.\d+)?)$/.test(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json('El rating debe ser un número entre 1 y 5.');
+    }
+
     if (!productId) {
         return res.status(400).json('Debe incluir un id de producto');
     }
@@ -777,7 +787,7 @@ app.post('/review', isAuthenticated, async (req, res) => {
 
         if (!purchaseRecord) {return res.status(400).json(`Debes comprar el producto con id: ${productId} antes de poder dejar una review.`)};
 
-        const createdReview = await Review.create({ productId, userId, review });
+        const createdReview = await Review.create({ productId, userId, review, rating });
         res.status(201).json({ message: 'Review creada con éxito', review: createdReview });
     } catch (error) {
         res.status(500).json(`Error interno del servidor: ${error}`);
@@ -864,9 +874,6 @@ app.get('/my-reviews', isAuthenticated, async(req, res) => {
         res.status(500).json(`Internal Server Error: ${error.message}`)
     }
 });
-
-//ruta para ver todas las reviews de todos los productos y los nombres de los usuarios que las escribieron.
-app.get('/reviews/products/all', async(req, res) => {})
 
 //ruta para crear brands.
 app.post('/brand', isAuthenticated, isAdmin, async(req, res) => {
@@ -1491,6 +1498,27 @@ app.delete('/product/:id', isAuthenticated, isAdmin, async (req, res) => {
             return res.status(404).json(`No hay producto con id: ${id}`);
         }
 
+        // revisar si el producto ha sido reportado.
+        // si es que lo ha sido, entonces eliminar todos los reportes antes de eliminar el producto.
+        const reports = await ReportedProduct.findAll({
+            where: {
+                productId: id
+            }
+        });
+
+        if (reports.length > 0) {
+            for (const report of reports) {
+                const reportId = report.id;
+                const reportProductId = report.productId;
+        
+                await report.destroy();
+            }
+        }
+
+        console.log(`REPORTED PRODUCT INFO FROM CONSOLE.LOG: ${reports} and PRODUCT ID: ${id}`);
+
+        // eliminar los reportes, arregla el error de: CONTRAINT: ReportedProducs references id Products.
+
         const productName = product.product;
 
         const transporter = await initializeTransporter();
@@ -1643,7 +1671,7 @@ app.put('/update-product-category', isAuthenticated, isAdmin, async(req, res) =>
             const categoryName = category.name;
             const categoryDescription = category.description;
 
-            // Verify if the category exists, if not, create it
+            // si es que la nueva categoria no existe, entonces sera creada automaticamente.
             let existingCategory = await Category.findOne({ where: { category: categoryName } });
             if (!existingCategory) {
                 existingCategory = await Category.create({ category: categoryName, description: categoryDescription });
@@ -1663,6 +1691,58 @@ app.put('/update-product-category', isAuthenticated, isAdmin, async(req, res) =>
 
 
 // ruta para que un admin pueda eliminar un producto de una categoria.
+
+// ruta para que un admin pueda ver todos los productos reportados y luego decidir si eliminarlos o no.
+app.get('/products/reported', isAuthenticated, isAdmin, async (req, res) => {
+    const userId = req.user.userId;
+
+    try {
+        const allReportedProducts = await ReportedProduct.findAll({
+            include: [{ model: User }, { model: Product }] // Include the users who reported the product and the reviews
+        });
+
+        if (allReportedProducts.length === 0) {
+            return res.status(404).json('No reported products currently exist');
+        }
+        
+        res.json({ totalReports: allReportedProducts.length, result: allReportedProducts });
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+//ruta de filtros combinados: falta PROBAR.
+app.get('/products/filter/:start/:end/:category', async (req, res) => {
+    const { start, end, category } = req.params;
+
+    try {
+       
+        const filteredProducts = await Product.findAll({
+            where: {
+                price: {
+                   
+                    [Op.between]: [start, end]
+                }
+            },
+            include: [
+                {
+                    model: Category,
+                    where: {
+                        category: category
+                    }
+                }
+            ]
+        });
+
+        res.json(filteredProducts);
+    } catch (error) {
+        console.error('Error filtering products:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+
 
 module.exports.bcrypt = bcrypt; // <-- heroku
 
