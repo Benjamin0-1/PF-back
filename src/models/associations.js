@@ -7,6 +7,7 @@ const Review = require('./Review');
 const Favorite = require('./Favorite');
 const PaymentHistory = require('./PaymentHistory');
 const ReportedProduct = require('./ReportedProduct');
+const Shipping = require('./Shipping');
 
 // Define associations for Category model
 Product.belongsToMany(Category, { through: 'ProductCategory' });
@@ -48,11 +49,17 @@ Product.belongsToMany(PaymentHistory, {through: 'ProductPayment'});
 ReportedProduct.belongsTo(User, {foreignKey: 'userId'});
 ReportedProduct.belongsTo(Product, {foreignKey: 'productId'});
 
+//relacion entre User y Shipping.
+User.hasOne(Shipping, {foreignKey: 'userId'});
+Shipping.belongsTo(User, {foreignKey: 'userId'});
 
-// Define associations for User model
-//User.associate = (models) => {
-//    User.hasMany(models.Product, { foreignKey: 'userId' }); // Add this association for Product model
-//};
+// relacion entre: PaymentHistory y Shipping. falta comprobar.
+
+PaymentHistory.belongsTo(Shipping, {foreignKey: 'shippingId'}); // onDelete: 'CASCADE';
+
+//debug:
+// PaymentHistory.belongsToMany(Shipping, {through: 'PaymentShipping'});
+// Shipping.belongsToMany(PaymentHistory, {through: 'PaymentShipping'}); 
 
 module.exports = {
     Category,

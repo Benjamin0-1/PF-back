@@ -30,6 +30,7 @@ const sequelize = require('./db');
 const models = require('./models/associations');
 const crypto = require('crypto');
 const PaymentHistory = require('./models/PaymentHistory');
+const Shipping = require('./models/Shipping');
 
 app.use(cors());
 app.use(express.json());
@@ -132,7 +133,8 @@ app.post('/verify', isAuthenticated, async (req, res) => {
 
 // STRIPE TESTING:
 
-
+// AGREAGR: <-- USUARIO DEBE TENER SHIPPING INFO O DE LO CONTRARIO NO PODRA COMPRAR NADA.
+// LUEGO DE QUE LA COMPRA SEA EXITOSA, AGREGARLA A ORDER TABLE.
 
 
 
@@ -146,6 +148,17 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
     let transaction;
 
     try {
+
+        
+        const userShippingInfo = await Shipping.findOne({ where: { userId: userId } });
+
+        // el usuario no puede comprar si es que no tiene info de envio.
+        if (!userShippingInfo) {
+            return res.status(400).json('Aun no tienes informacion de envio, debes agregarla antes de poder comprar.');
+    }
+
+        const shippingId = userShippingInfo.id;
+        console.log(`USER SHIPPING ID: ${shippingId}`);
         
         transaction = await sequelize.transaction(); 
         
@@ -156,6 +169,10 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
         let totalAmount = 0; 
         
         for (const product of products) {
+
+            // assing the same shipping id to all the transactions made by the SAME user.
+            product.shippingId = shippingId;
+
             const productFromDB = await Product.findByPk(product.id, { transaction });
 
             if (!productFromDB) {
@@ -196,7 +213,8 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
                 productId: product.id,
                 quantity: product.quantity,
                 purchaseDate: new Date(),
-                total_transaction_amount: subtotal 
+                total_transaction_amount: subtotal,
+                shippingId: shippingId 
             });
         }
 
@@ -228,6 +246,7 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
 
 
 
+
 // ver historial de pagos.
 // esto tambien se usa para verificar que un usuario haya comprado el producto del cual deja una review.
 app.get('/payment-history', isAuthenticated, async(req, res) => {
@@ -237,7 +256,10 @@ app.get('/payment-history', isAuthenticated, async(req, res) => {
         const paymentDetails = await PaymentHistory.findAll({
             where: {
                 userId: userId
-            }
+            },
+            include: [{
+                model: Shipping
+            }]
         });
 
         if (paymentDetails.length === 0) {return res.status(404).json('No has comprado nada.')};
@@ -251,6 +273,105 @@ app.get('/payment-history', isAuthenticated, async(req, res) => {
 });
 
 
+
+
+// ruta para que usuarios agreguen su informacion de envio.
+// FALTA PROBAR
+app.post('/user/shipping', isAuthenticated, isUserBanned, async(req, res) => {
+    const userId = req.user.userId;
+    const {country, city, zip_code} = req.body;
+
+    if (!country || !city || !zip_code) {
+        return res.status(400).json('Faltan datos obligatorios');
+    };
+
+    try {
+        // first check if user already has shipping info, if so, tell them they can update it instead (in a different route)
+        const checkShippingInfoExists = await Shipping.findOne({
+            where: {
+                userId: userId
+            }
+        });
+        if (checkShippingInfoExists) {
+            return res.status(400).json('ya tienes informacion de envio.') // <-- pueden editarla en otra ruta
+        };
+
+        const newShippingInfo = await Shipping.create({
+            userId,
+            country,
+            city,
+            zip_code
+        });
+
+        res.status(201).json({message: 'info de envio agregada con exito', details: newShippingInfo})
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+});
+
+// ruta para que un usuario pueda ACTUALIZAR su info de envio.
+// FALTA PROBAR
+app.put('/update-shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
+    const userId = req.user.userId;
+    const {country, city, zip_code} = req.body;
+
+    if (!country && !city && !zip_code) {
+        return res.status(400).json('Debe incluir al menos un dato a actualizar');
+    };
+
+    try {
+        // first check that the user already has shippig info, if not just create it anyway.
+        let userShippingInfo = await Shipping.findOne({where: {userId: userId}});
+        
+        // si el usuario no tiene info, crearla de todas formas.
+        if (!userShippingInfo) {
+            userShippingInfo = await Shipping.create({
+                userId: userId,
+                country: country || null,
+                city: city || null,
+                zip_code: zip_code || null
+            });
+            return res.status(201).json({ message: 'Info de envío ha sido creada con éxito', details: userShippingInfo });
+        }
+
+        // si es que ya existe info de envio, actualizarla.
+        // la info que no desea ser actualizada, se mantendra tal cual como estaba.
+        await userShippingInfo.update({
+            country: country || userShippingInfo.country,
+            city: city || userShippingInfo.city,
+            zip_code: zip_code || userShippingInfo.zip_code
+        });
+        res.status(200).json({ message: 'Información de envío actualizada con éxito', details: userShippingInfo });
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+});
+
+// ruta para que un usuario pueda ver su info de envio.
+//FALTA PROBAR.
+app.get('/shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
+     const userId = req.user.userId;
+     
+     try {
+        
+        const userShippingInfo = await Shipping.findOne({
+            where: {
+                userId: userId
+            }
+        });
+
+        if (!userShippingInfo) {
+            return res.status(404).json('Aun no tienes info de envio, intenta agregarla.')
+        };
+
+        res.json(userShippingInfo)
+
+     } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+     }
+});
 
 // :END OF STRIPE TESTING 
 
@@ -726,7 +847,11 @@ app.get('/profile-info', isAuthenticated, async(req, res) => {
             where: {
                 id: userId
             },
-            attributes: { exclude: ['password', 'otp_secret', 'password_reset_token', 'password_reset_token_expires', 'id', 'google_id'] }
+            attributes: { exclude: ['password', 'otp_secret', 'password_reset_token', 'password_reset_token_expires', 'id', 'google_id'] },
+            include: [
+                {model: Shipping,
+                attributes: {exclude: ['id', 'userId', 'createdAt', 'updatedAt']}}
+            ]
         });
         // aqui no se envian ciertos valores por motivos de seguridad.
         res.json(userProfileData)
@@ -959,6 +1084,12 @@ app.post('/product', isAuthenticated, isAdmin, async (req, res) => {
         const userId = req.user.userId; // Extract userId from the decoded JWT token
         // no se debe agregar review al producto a la hora de crearlo, esa es tarea de los usuarios.
         // check that brandId exists.
+
+        // revisar si el producto ya existe
+        const checkProductExists = await Product.findOne({
+            where: {product: product}
+        });
+        if (checkProductExists) {return res.status(400).json(`El producto con nombre: ${product} ya existe`)};
 
         // Create the product with the provided attributes and userId
         const createdProduct = await Product.create({
@@ -1879,7 +2010,7 @@ app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
 
 module.exports.bcrypt = bcrypt; // <-- heroku
 
-sequelize.sync({alter: false}).then(() => {
+sequelize.sync({force: false}).then(() => {
     const PORT = process.env.PORT || 3001; 
     app.listen(PORT, () => {
         console.log(`Server running on Port: ${PORT}`);
@@ -1909,5 +2040,65 @@ esto falta implementar.
       res.status(500).json({ error: 'Internal server error' });
     }
   });
+
+*/
+
+
+/*
+EXTRA: USUARIOS PUEDEN TENER VARIAS DIRECCIONES, COMO EN AMAZON:
+
+// Endpoint to retrieve all shipping addresses for a user
+app.get('/shipping-addresses', async (req, res) => {
+    const userId = req.user.id; // Assuming userId is obtained from the authenticated user
+
+    try {
+        // Retrieve all shipping addresses associated with the user
+        const shippingAddresses = await Shipping.findAll({ where: { userId: userId } });
+        
+        res.json(shippingAddresses);
+    } catch (error) {
+        console.error('Error retrieving shipping addresses:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Endpoint to add a new shipping address for a user
+app.post('/shipping-addresses', async (req, res) => {
+    const userId = req.user.id; // Assuming userId is obtained from the authenticated user
+    const { country, city, zipCode } = req.body;
+
+    try {
+        // Create a new shipping address record associated with the user
+        const newShippingAddress = await Shipping.create({
+            userId: userId,
+            country: country,
+            city: city,
+            zipCode: zipCode
+        });
+        
+        res.json(newShippingAddress);
+    } catch (error) {
+        console.error('Error adding shipping address:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Endpoint to delete a shipping address for a user
+app.delete('/shipping-addresses/:shippingAddressId', async (req, res) => {
+    const userId = req.user.id; // Assuming userId is obtained from the authenticated user
+    const shippingAddressId = req.params.shippingAddressId;
+
+    try {
+        // Delete the specified shipping address associated with the user
+        await Shipping.destroy({ where: { id: shippingAddressId, userId: userId } });
+        
+        res.json({ message: 'Shipping address deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting shipping address:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
 
 */

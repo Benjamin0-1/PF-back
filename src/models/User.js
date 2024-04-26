@@ -1,6 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const sequelize = require('../db');
 const PaymentHistory = require('./PaymentHistory');
+const Shipping = require('./Shipping');
 
 const User = sequelize.define('User', {
     first_name: {
@@ -77,6 +78,7 @@ const User = sequelize.define('User', {
 User.beforeDestroy(async (user, options) => {
     try {
         await PaymentHistory.destroy({ where: { userId: user.id } });
+        await Shipping.destroy({where: {userId: user.id}}); 
     } catch (error) {
         console.error('Error deleting associated payment history:', error);
     }

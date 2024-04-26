@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../db');
+const Shipping = require('./Shipping'); // Import the Shipping model
 
 const PaymentHistory = sequelize.define('PaymentHistory', {
     userId: {
@@ -19,13 +20,13 @@ const PaymentHistory = sequelize.define('PaymentHistory', {
         allowNull: false,
         defaultValue: DataTypes.NOW 
     },
-    
     total_transaction_amount: {
         type: DataTypes.FLOAT,
         allowNull: true
+    },
+    shippingId: {
+        type: DataTypes.INTEGER
     }
 });
 
-
 module.exports = PaymentHistory;
-// payment history pordria tener una foreign key referenciando a Order. 
