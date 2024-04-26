@@ -28,3 +28,4 @@ const PaymentHistory = sequelize.define('PaymentHistory', {
 
 
 module.exports = PaymentHistory;
+// payment history pordria tener una foreign key referenciando a Order. 

@@ -1712,16 +1712,25 @@ app.get('/products/reported', isAuthenticated, isAdmin, async (req, res) => {
     }
 });
 
-//ruta de filtros combinados, tambien se puede agregar rating.
-app.get('/products/filter/:start/:end/:category', async (req, res) => {
-    const { start, end, category } = req.params;
+//ruta de filtros COMBINADOS.
+app.get('/products/filter/:start/:end/:startRating/:endRating/:category', async (req, res) => {
+    const { start, end, startRating, endRating, category } = req.params; 
+
+    if (!start && !end && !startRating && !endRating && !category) {
+        return res.status(400).json('Debe incluir por lo menos 1 filtro')
+    };
+
+    // regex.
+    const numberRegex = /^\d+(\.\d+)?$/;
+    if (!numberRegex.test(start) || !numberRegex.test(end) || !numberRegex.test(startRating) || !numberRegex.test(endRating)) {
+        return res.status(400).json('Los valores de inicio, fin y calificación deben ser números o decimales.');
+    }
 
     try {
-       
+
         const filteredProducts = await Product.findAll({
             where: {
                 price: {
-                   
                     [Op.between]: [start, end]
                 }
             },
@@ -1730,18 +1739,36 @@ app.get('/products/filter/:start/:end/:category', async (req, res) => {
                     model: Category,
                     where: {
                         category: category
+                    },
+                    model: Review,
+                    where: {
+                        rating: {
+                            [Op.between]: [startRating, endRating]
+                        }
                     }
                 }
+            
             ]
         });
 
-        res.json(filteredProducts);
+        console.log(`FILTERED PRODUCTS: ${filteredProducts}`);
+        filteredProducts.forEach(product => {
+            console.log(product.toJSON());
+        })
+        
+        if (filteredProducts.length === 0) {
+            return res.status(404).json('No existen productos con los filtros aplicados')
+        };
+
+        res.json(filteredProducts)
+
     } catch (error) {
         console.error('Error filtering products:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
+// MIDDLEWARE PARA USUARIOS BANEADOS.
 async function isUserBanned(req, res, next) {
     try {
         const userId = req.user.userId;
@@ -1751,9 +1778,9 @@ async function isUserBanned(req, res, next) {
             return res.status(400).json('Usuario no encontrado');
         }
 
-        if (user.banned && user.banExpiration && new Date() > new Date(user.banExpiration)) {
+        if (user.banned && user.ban_expiration && new Date() > new Date(user.ban_expiration)) {
             user.banned = false;
-            user.banExpiration = null;
+            user.ban_expiration = null;
             await user.save();
         }
 
@@ -1780,6 +1807,19 @@ app.post('/ban/:userId', isAuthenticated, isAdmin, async(req, res) => {
     if (!userId || !banDurationHours) {
         return res.status(400).json('Faltan datos obligatorios')
     };
+
+    // revisar que usuario a banear no sea admin, ni tampoco el mismo que esta accediendo a esta ruta.
+    const checkUser = await User.findOne({
+        where: {
+            id: userId
+        }
+    }); // <-- will always be found thanks to isAuthenticated
+
+
+    // check if user is trying to ban an admin or himself.
+    if (checkUser.is_admin || checkUser.id === userId) {
+        return res.status(400).json('No puedes banear a otro usuario Admin ni a ti mismo.')
+    };
     
     try {
         const user = await User.findByPk(userId) 
@@ -1799,6 +1839,38 @@ app.post('/ban/:userId', isAuthenticated, isAdmin, async(req, res) => {
         res.status(500).json(`Internal Server Error: ${error}`)
     }
 }); // <-- solo falta comprobar que el ban haya sido levantado.
+
+// ruta para que un admin pueda ver todos los usuarios baneados.
+app.get('/all-banned-users', isAuthenticated, isAdmin, async(req, res) => {
+    
+    try {
+        
+        const allBannedUsers = await User.findAll({
+            where: {
+                banned: true,
+                ban_expiration: {
+                    [Op.not]: null  
+                }
+            }
+        });
+
+        if (allBannedUsers.length === 0) {return res.status(404).json('No hay usuarios baneados.')};
+
+        const filteredBannedUsers = allBannedUsers.filter(user => user.ban_expiration && new Date() < new Date(user.ban_expiration));
+
+        res.json({
+            result: allBannedUsers.length,
+            users: filteredBannedUsers
+        });
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+
+    }
+});
+
+//ruta para que un admin manualmente pueda eliminar el ban.
+app.put('/ban/remove/:userId', isAuthenticated, isAdmin, async(req, res) => {})
 
 app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
     res.send('YOU ARE NOT BANNED ')

@@ -54,7 +54,7 @@ const Product = sequelize.define('Product', {
     },
     // link de imagen va en cloudinary.
     image: {
-        type: DataTypes.STRING,
+        type: DataTypes.STRING, // <-- revisar ruta POST /product y PUT /product
         allowNull: true
     },
     createdAt: {

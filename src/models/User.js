@@ -82,6 +82,9 @@ User.beforeDestroy(async (user, options) => {
     }
 });
 
+// <-- FALTA: EN CASO DE QUE UN USUARIO SEA ELIMINADO, TAMBIEN DEBE ELIMINAR SU
+// SHIPPING, PAYMENTHISTORY, ORDER.
+
 module.exports = User;
 
 // add email field.
