@@ -48,14 +48,15 @@ const Product = sequelize.define('Product', {
         allowNull: false,
         defaultValue: false
     },
-    userId: {
+    userId: {   // puede servir para ver que ADMIN creo cada producto.
         type: DataTypes.INTEGER,
         allowNull: false
     },
     // link de imagen va en cloudinary.
     image: {
         type: DataTypes.STRING, // <-- revisar ruta POST /product y PUT /product
-        allowNull: true
+        allowNull: true,
+        defaultValue: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGm5siy6WyzdMY2c_MmzhE8bSy8RZ4QqZ2rQ&s'
     },
     createdAt: {
         type: DataTypes.DATE,

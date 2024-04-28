@@ -141,36 +141,52 @@ app.post('/verify', isAuthenticated, async (req, res) => {
 const stripe = require('stripe')('sk_test_51P7RX608Xe3eKAmZLRdLEZqVedzK4Cv6EJks2vZg0qpjIxobSBvDXFJPUJE4wumqsOSuU1FMxzEyWEsXTZnIJEU000Spkdfy3x');
 
 // debe ir asociado a un usuario
-app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
+app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     const products = req.body.products;
+    const { nickname, reqShippingId } = req.body; // Rename shippingId to reqShippingId
 
     let transaction;
+    let shippingId;
+
+    if (!reqShippingId) {
+        return res.status(400).json('Debe entregar al menos un dato de envio (ID o nickname) de su direccion de envio')
+    };
 
     try {
+        // arreglar bug en el cual usuarios podian usar shippingId de otros usuarios.
+        // tambien se puede agreagr where: {nickname: nickname} mas tarde.
+        const userShippingInfo = await Shipping.findOne({ where: { userId: userId, shippingId: reqShippingId } });
 
-        
-        const userShippingInfo = await Shipping.findOne({ where: { userId: userId } });
-
-        // el usuario no puede comprar si es que no tiene info de envio.
         if (!userShippingInfo) {
-            return res.status(400).json('Aun no tienes informacion de envio, debes agregarla antes de poder comprar.');
-    }
+            return res.status(400).json('Aun no tienes informacion de envio, o tu info de envio esta incorrecta.');
+        };
 
-        const shippingId = userShippingInfo.id;
+
+        const shippingInfo = await Shipping.findOne({where: {shippingId: reqShippingId}});
+        if (!shippingInfo) {
+            return res.status(404).json('No se encontró la información de envío especificada.');
+        }
+
+
+        shippingId = shippingInfo.shippingId;
         console.log(`USER SHIPPING ID: ${shippingId}`);
         
+
         transaction = await sequelize.transaction(); 
         
         const items = [];
         const outOfStockProducts = [];
-        
         const paymentHistoryData = [];
         let totalAmount = 0; 
         
         for (const product of products) {
+            const checkProductExists = await Product.findByPk(product.id);
+            if (!checkProductExists) {
+                await transaction.rollback();
+                return res.status(404).json('Un producto en tu carrito no existe');
+            }
 
-            // assing the same shipping id to all the transactions made by the SAME user.
             product.shippingId = shippingId;
 
             const productFromDB = await Product.findByPk(product.id, { transaction });
@@ -186,11 +202,9 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
                 return res.status(400).json({ error: `Product ${productFromDB.product} is out of stock.` });
             }
 
-            
             productFromDB.stock -= product.quantity;
             await productFromDB.save({ transaction });
 
-            
             items.push({
                 price_data: {
                     currency: 'usd',
@@ -203,11 +217,9 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
                 quantity: product.quantity
             });
 
-            
             const subtotal = productFromDB.price * product.quantity;
             totalAmount += subtotal;
 
-        
             paymentHistoryData.push({
                 userId: userId,
                 productId: product.id,
@@ -218,19 +230,16 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
             });
         }
 
-        
         await transaction.commit();
 
-       
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: items,
             mode: 'payment',
-            success_url: 'https://www.example.com/success', 
+            success_url: 'http://localhost:3000/paymenthistory', 
             cancel_url: 'https://www.example.com/cancel', 
         });
 
-        
         await PaymentHistory.bulkCreate(paymentHistoryData);
 
         res.json({ id: session.id });
@@ -247,9 +256,12 @@ app.post('/create-checkout-session', isAuthenticated, async (req, res) => {
 
 
 
+
+
+
 // ver historial de pagos.
 // esto tambien se usa para verificar que un usuario haya comprado el producto del cual deja una review.
-app.get('/payment-history', isAuthenticated, async(req, res) => {
+app.get('/payment-history', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
 
     try {
@@ -257,97 +269,108 @@ app.get('/payment-history', isAuthenticated, async(req, res) => {
             where: {
                 userId: userId
             },
-            include: [{
-                model: Shipping
-            }]
+            include: [
+                {
+                    model: Shipping
+                }
+            ]
         });
 
-        if (paymentDetails.length === 0) {return res.status(404).json('No has comprado nada.')};
+        if (paymentDetails.length === 0) {
+            return res.status(404).json('No has comprado nada.');
+        }
 
-        res.json(paymentDetails)
-
+        res.json(paymentDetails);
     } catch (error) {
         res.status(500).json(`Internal Server error: ${error}`);
     }
-
 });
+
 
 
 
 
 // ruta para que usuarios agreguen su informacion de envio.
-// FALTA PROBAR
-app.post('/user/shipping', isAuthenticated, isUserBanned, async(req, res) => {
+
+//TENDRE QUE PERMITIR A USUARIOS PODER TENER VARIAS DIRECCIONES DE ENVIO ASOCIADAS A ELLOS.
+app.post('/user/shipping', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
-    const {country, city, zip_code} = req.body;
+    const { nickname, country, city, zip_code } = req.body;
 
     if (!country || !city || !zip_code) {
         return res.status(400).json('Faltan datos obligatorios');
-    };
+    }
+
+    // check that user cannot create an address with the same name TWICE
 
     try {
-        // first check if user already has shipping info, if so, tell them they can update it instead (in a different route)
-        const checkShippingInfoExists = await Shipping.findOne({
-            where: {
-                userId: userId
-            }
-        });
-        if (checkShippingInfoExists) {
-            return res.status(400).json('ya tienes informacion de envio.') // <-- pueden editarla en otra ruta
-        };
+        // nickname deberia ser unico.
+        const existingShipping = await Shipping.findOne({ where: { userId: userId, nickname: nickname } });
+        if (existingShipping) {
+            return res.status(400).json('Ya tienes una dirección de envío con el mismo apodo.');
+        }
+        
+        const addressCount = await Shipping.count({ where: { userId: userId } });
+        if (addressCount >= 10) {
+            return res.status(400).json('Has alcanzado el límite máximo de direcciones de envío (10).');
+        }
 
+        // Create new shipping address
         const newShippingInfo = await Shipping.create({
             userId,
+            nickname,
             country,
             city,
             zip_code
         });
 
-        res.status(201).json({message: 'info de envio agregada con exito', details: newShippingInfo})
+        res.status(201).json({ message: 'Información de envío agregada con éxito', details: newShippingInfo });
 
     } catch (error) {
-        res.status(500).json(`Internal Server Error: ${error}`)
+        res.status(500).json(`Error interno del servidor: ${error}`);
     }
 });
 
+
 // ruta para que un usuario pueda ACTUALIZAR su info de envio.
 // FALTA PROBAR
-app.put('/update-shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
+app.put('/update-shipping-info', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
-    const {country, city, zip_code} = req.body;
+    const { nickname, id, country, city, zip_code } = req.body;
 
-    if (!country && !city && !zip_code) {
-        return res.status(400).json('Debe incluir al menos un dato a actualizar');
+    if (!id) {
+        return res.status(400).json('Debe proporcionar el id de shipping a actualizar')
     };
 
     try {
-        // first check that the user already has shippig info, if not just create it anyway.
-        let userShippingInfo = await Shipping.findOne({where: {userId: userId}});
-        
-        // si el usuario no tiene info, crearla de todas formas.
+        const userShippingInfo = await Shipping.findOne({
+            where: {
+                shippingId: id,
+                userId: userId
+            }
+        }); // <-- encontrar la info que el usuario posee y evitar colisiones con info de otros usuarios.
+
         if (!userShippingInfo) {
-            userShippingInfo = await Shipping.create({
-                userId: userId,
-                country: country || null,
-                city: city || null,
-                zip_code: zip_code || null
-            });
-            return res.status(201).json({ message: 'Info de envío ha sido creada con éxito', details: userShippingInfo });
+            return res.status(404).json('No se encontró la información de envío para el usuario actual con el ID proporcionado.');
         }
 
-        // si es que ya existe info de envio, actualizarla.
-        // la info que no desea ser actualizada, se mantendra tal cual como estaba.
+       
         await userShippingInfo.update({
             country: country || userShippingInfo.country,
             city: city || userShippingInfo.city,
             zip_code: zip_code || userShippingInfo.zip_code
         });
-        res.status(200).json({ message: 'Información de envío actualizada con éxito', details: userShippingInfo });
+
+        const updatedShippingInfo = await Shipping.findByPk(id);
+
+        res.status(200).json({ message: 'Información de envío actualizada con éxito', details: updatedShippingInfo });
+
 
     } catch (error) {
-        res.status(500).json(`Internal Server Error: ${error}`)
+        res.status(500).json(`Error interno del servidor: ${error}`);
     }
 });
+
 
 // ruta para que un usuario pueda ver su info de envio.
 //FALTA PROBAR.
@@ -356,7 +379,7 @@ app.get('/shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
      
      try {
         
-        const userShippingInfo = await Shipping.findOne({
+        const userShippingInfo = await Shipping.findAll({ 
             where: {
                 userId: userId
             }
@@ -372,6 +395,16 @@ app.get('/shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
         res.status(500).json(`Internal Server Error: ${error}`)
      }
 });
+
+//debugging route:
+app.get('/allshipping', async(req, res) => {
+    try {
+        const allShipping = await Shipping.findAll();
+        res.json(allShipping)
+    } catch (error) {
+        res.json(error)
+    }
+})
 
 // :END OF STRIPE TESTING 
 
@@ -478,7 +511,7 @@ function generateToken() {
 
 // ESTO NO TIENE EFECTO EN USUARIOS DE GOOGLE.
 // function must also send a token/code with an exp date so that certain users can access this page/route to reset password.
-app.post('/reset-password-request', isAuthenticated, async (req, res) => {
+app.post('/reset-password-request', isAuthenticated, isUserBanned, async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
@@ -516,7 +549,7 @@ app.post('/reset-password-request', isAuthenticated, async (req, res) => {
 
 // NO TIENE EFECTO EN USUARIOS DE GOOGLE.
 // this route must verify the code so that only users who requested a password reset can access it. 
-app.post('/reset-password', isAuthenticated, async (req, res) => {
+app.post('/reset-password', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     const resetToken = req.body.resetToken;
 
@@ -828,7 +861,7 @@ app.post('/signup', async(req, res) => {
             // SEND WELCOME EMAIL HERE.
             const transporter = await initializeTransporter();
             await sendMail(transporter, email, 'Bienvenido a nuestro sitio', 'Gracias por registrarte');
-            console.log(`Email sent no new user: ${email}`);
+            console.log(`Email sent to new user: ${email}`);
             return res.status(201).json(`Username: ${newUser.username} created successfully`);
 
         } else {
@@ -840,7 +873,7 @@ app.post('/signup', async(req, res) => {
 });
 
 // PROFILE:
-app.get('/profile-info', isAuthenticated, async(req, res) => {
+app.get('/profile-info', isAuthenticated, isUserBanned, async(req, res) => {
     const userId = req.user.userId;
     try {
         const userProfileData = await User.findOne({
@@ -863,7 +896,7 @@ app.get('/profile-info', isAuthenticated, async(req, res) => {
 
 // ruta para crear review, un usuario solamente puede escribir una review de un producto una vez.
 // se verifica que el usuario haya comprado el producto antes de poder escribir una review.
-app.post('/review', isAuthenticated, async (req, res) => {
+app.post('/review', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     const { productId, review, rating } = req.body; // <-- AGREGAR RATING.
 
@@ -920,7 +953,7 @@ app.post('/review', isAuthenticated, async (req, res) => {
 });
 
 //ruta para que un usuario pueda eliminar su review escrita sobre un producto especifico (por productId)
-app.delete('/review/:reviewId', isAuthenticated, async (req, res) => {
+app.delete('/review/:reviewId', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     const reviewId = req.params.reviewId; // <-- deja la reviewId y esa review sera eliminada (si es que tu usuario la ha escrito).
 
@@ -942,7 +975,7 @@ app.delete('/review/:reviewId', isAuthenticated, async (req, res) => {
 
 
 ///ruta para ver todas las reviews que un usuario ha escrito. un usuario solo puede dejar una review por producto. 
-app.get('/user/reviews', isAuthenticated, async (req, res) => {
+app.get('/user/reviews', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     console.log(`User id: ${userId}`);
 
@@ -984,7 +1017,7 @@ app.get('/reviews', async(req, res) => {
 });
 
 // debugging route to get the right amount of reviews per user id.
-app.get('/my-reviews', isAuthenticated, async(req, res) => {
+app.get('/my-reviews', isAuthenticated, isUserBanned, async(req, res) => {
     const userId = req.user.userId;
     console.log(`user id: ${userId}`);
 
@@ -1216,7 +1249,7 @@ app.get('/product-detail/:id', async(req, res) => {
 
 
 //ruta para que usuarios puedan reportar un producto. (por id). Un usuario puede reportar un producto una sola vez.
-app.post('/products/report/id', isAuthenticated, async(req, res) => {
+app.post('/products/report/id', isAuthenticated, isUserBanned, async(req, res) => {
     const userId = req.user.userId;
     const productId = req.body.productId;
     if (!productId) {return res.status(400).json('Debe uncluir el id del producto')};
@@ -1249,7 +1282,7 @@ app.post('/products/report/id', isAuthenticated, async(req, res) => {
 });
 
 //ruta para que usuarios puedan reportar un producto. (por nombre)
-app.post('/products/report/name', isAuthenticated, async(req, res) => {
+app.post('/products/report/name', isAuthenticated, isUserBanned, async(req, res) => {
     const userId = req.user.userId;
     const productName = req.body.productName;
     if (!productName) {return res.status(400).json('Debe incluir el nombre del producto')};
@@ -1467,7 +1500,7 @@ app.delete('/deleteuser/email/:email', isAuthenticated, isAdmin, async(req, res)
 });
 
 // ruta para que un usuario puede eliminar SU PROPIA CUENTA.    
-app.delete('/delete/user', isAuthenticated, async (req, res) => {
+app.delete('/delete/user', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
 // esta no necesita ser baneada ya que el usuario no ha roto las reglas, simplemente ha decidido dejar el sitio de manera permanente.
     try {
@@ -1735,7 +1768,7 @@ app.post('/send-email-to-all-users', isAuthenticated, isAdmin, async(req, res) =
 //rutas de favorites: 
 
 //ruta para ver todos los favoritos que el usuario especifico tiene en su lista.
-app.get('/products/user/favorites', isAuthenticated, async (req, res) => {
+app.get('/products/user/favorites', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId; // <-- for each user specific data.
     
     try {
@@ -1754,7 +1787,7 @@ app.get('/products/user/favorites', isAuthenticated, async (req, res) => {
 
 
 // ruta para anadir producto a su favorito (usuario).
-app.post('/products/user/favorites', isAuthenticated, async (req, res) => {
+app.post('/products/user/favorites', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     const { productId } = req.body;
 
@@ -2010,7 +2043,7 @@ app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
 
 module.exports.bcrypt = bcrypt; // <-- heroku
 
-sequelize.sync({force: false}).then(() => {
+sequelize.sync({force: false}).then(() => { // <-- TEST SHIPPING HISTORIES. AND THE DEBUGGING ROUTE /ALLHISTORIES. 
     const PORT = process.env.PORT || 3001; 
     app.listen(PORT, () => {
         console.log(`Server running on Port: ${PORT}`);

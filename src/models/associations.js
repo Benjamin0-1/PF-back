@@ -8,6 +8,7 @@ const Favorite = require('./Favorite');
 const PaymentHistory = require('./PaymentHistory');
 const ReportedProduct = require('./ReportedProduct');
 const Shipping = require('./Shipping');
+const ShippingHistory = require('./ShippingHistory');
 
 // Define associations for Category model
 Product.belongsToMany(Category, { through: 'ProductCategory' });
@@ -49,17 +50,24 @@ Product.belongsToMany(PaymentHistory, {through: 'ProductPayment'});
 ReportedProduct.belongsTo(User, {foreignKey: 'userId'});
 ReportedProduct.belongsTo(Product, {foreignKey: 'productId'});
 
-//relacion entre User y Shipping.
-User.hasOne(Shipping, {foreignKey: 'userId'});
+//relacion entre User y Shipping. un usuario puede tener varias direcciones.
+User.hasMany(Shipping, {foreignKey: 'userId'});
 Shipping.belongsTo(User, {foreignKey: 'userId'});
 
-// relacion entre: PaymentHistory y Shipping. falta comprobar.
-
+// relacion entre: PaymentHistory y Shipping. 
 PaymentHistory.belongsTo(Shipping, {foreignKey: 'shippingId'}); // onDelete: 'CASCADE';
 
-//debug:
-// PaymentHistory.belongsToMany(Shipping, {through: 'PaymentShipping'});
-// Shipping.belongsToMany(PaymentHistory, {through: 'PaymentShipping'}); 
+
+/*
+// relacion entre ShippingHistory y Shipping.
+//Shipping.hasMany(ShippingHistory, {foreignKey: 'shippingId'}); 
+
+// relacion en shipping histories y users.
+//ShippingHistory.belongsTo(User, { foreignKey: 'userId' });
+//ShippingHistory.belongsTo(Shipping, { foreignKey: 'shippingId' });
+
+*/
+
 
 module.exports = {
     Category,

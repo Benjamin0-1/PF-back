@@ -1,11 +1,29 @@
+
+/*
+
 const { DataTypes } = require('sequelize');
 const sequelize = require('../db');
 
 
-
-const ShippingHistory = new sequelize.define('ShippingHistory', {
+const ShippingHistory = sequelize.define('ShippingHistory', {
+    userId: {
+        type: DataTypes.INTEGER,
+        allowNull: false
+    },
     shippingId: { // this references the SHipping table
         type: DataTypes.INTEGER,
+        allowNull: false
+    },
+    country: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    city: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    zip_code: {
+        type: DataTypes.STRING,
         allowNull: false
     }
 });
@@ -18,3 +36,8 @@ const ShippingHistory = new sequelize.define('ShippingHistory', {
 
 //Shipping.hasMany(ShippingHistory, { foreignKey: 'shippingId' });
 // luego esto debe mostrarse de manera correcta en /payment-history.
+
+module.exports = ShippingHistory;
+
+
+*/
