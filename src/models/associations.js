@@ -1,3 +1,5 @@
+
+
 const sequelize = require('sequelize');
 const Category = require('./Category');
 const Product = require('./Product');
@@ -9,6 +11,7 @@ const PaymentHistory = require('./PaymentHistory');
 const ReportedProduct = require('./ReportedProduct');
 const Shipping = require('./Shipping');
 const ShippingHistory = require('./ShippingHistory');
+const Order = require('./Order');
 
 // Define associations for Category model
 Product.belongsToMany(Category, { through: 'ProductCategory' });
@@ -58,6 +61,26 @@ Shipping.belongsTo(User, {foreignKey: 'userId'});
 PaymentHistory.belongsTo(Shipping, {foreignKey: 'shippingId'}); // onDelete: 'CASCADE';
 
 
+// relacion de Order con los modelos: User, Product, PaymentHistory, Shipping.
+Order.belongsTo(User, { foreignKey: 'userId' });
+
+// un usuario puede tener varias ordenes pero cada orden pertenece a un usuario (one to many).
+
+Order.belongsToMany(Product, { through: 'OrderProduct' });
+Product.belongsToMany(Order, { through: 'OrderProduct', onDelete: 'CASCADE' });
+// many to many entre Order y Product.
+
+PaymentHistory.belongsTo(Order, { foreignKey: 'orderId' });
+Order.hasMany(PaymentHistory, { foreignKey: 'orderId' });
+// one to many. un historial de pago pertenece a una orden. 
+// cada orden puede tener varias transacciones.
+
+Order.belongsTo(Shipping, { foreignKey: 'shippingId' });
+Shipping.hasMany(Order, { foreignKey: 'shippingId' });
+// cada orden esta asociada a una shipping addr.
+// cada shipping addr puede tener/estar asociada a multiples ordenes. 
+
+
 /*
 // relacion entre ShippingHistory y Shipping.
 //Shipping.hasMany(ShippingHistory, {foreignKey: 'shippingId'}); 
@@ -75,6 +98,12 @@ module.exports = {
     User,
     Brand,
     Review,
-    Favorite
+    Favorite,
+    PaymentHistory,
+    ReportedProduct,
+    Shipping,
+    ShippingHistory,
+    Order
 };
+
 

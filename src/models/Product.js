@@ -29,11 +29,7 @@ const Product = sequelize.define('Product', {
         type: DataTypes.INTEGER,
         allowNull: false
     },
-    rating: {
-        type: DataTypes.FLOAT,
-        allowNull: true // <- users will give it a rating if they like
-    },
-
+    // rating fue eleminado ya que eso lo deciden los usuarios.
     attributes: {
         type: DataTypes.TEXT,
         allowNull: true

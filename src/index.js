@@ -25,6 +25,7 @@ const Review = require('./models/Review');
 const Favorite = require('./models/Favorite');
 const ReportedProduct = require('./models/ReportedProduct');
 const DeletedUser = require('./models/DeletedUser');
+const Order = require('./models/Order');
 
 const sequelize = require('./db');
 const models = require('./models/associations');
@@ -136,7 +137,7 @@ app.post('/verify', isAuthenticated, async (req, res) => {
 // AGREAGR: <-- USUARIO DEBE TENER SHIPPING INFO O DE LO CONTRARIO NO PODRA COMPRAR NADA.
 // LUEGO DE QUE LA COMPRA SEA EXITOSA, AGREGARLA A ORDER TABLE.
 
-
+// ADD ORDER FUNCTIONALITY.
 
 const stripe = require('stripe')('sk_test_51P7RX608Xe3eKAmZLRdLEZqVedzK4Cv6EJks2vZg0qpjIxobSBvDXFJPUJE4wumqsOSuU1FMxzEyWEsXTZnIJEU000Spkdfy3x');
 
@@ -148,6 +149,7 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
 
     let transaction;
     let shippingId;
+    let orderId;
 
     if (!reqShippingId) {
         return res.status(400).json('Debe entregar al menos un dato de envio (ID o nickname) de su direccion de envio')
@@ -179,6 +181,13 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
         const outOfStockProducts = [];
         const paymentHistoryData = [];
         let totalAmount = 0; 
+
+        const newOrder = await Order.create({
+            userId: userId,
+            totalAmount: 0, // Initial total amount is 0
+            paymentStatus: 'pending', // Assuming the initial status is pending
+            shippingId: shippingId // Assigning the retrieved shippingId
+        }, { transaction });
         
         for (const product of products) {
             const checkProductExists = await Product.findByPk(product.id);
@@ -219,6 +228,16 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
 
             const subtotal = productFromDB.price * product.quantity;
             totalAmount += subtotal;
+                       
+    
+            orderId = newOrder.id; // Retrieve the generated orderId
+    
+            // Update paymentHistoryData with the correct orderId
+            for (const data of paymentHistoryData) {
+                data.orderId = orderId;
+            }
+
+            await newOrder.addProducts(productFromDB, { through: { quantity: product.quantity }, transaction }); // <-- FIX THIS LINE
 
             paymentHistoryData.push({
                 userId: userId,
@@ -226,9 +245,13 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
                 quantity: product.quantity,
                 purchaseDate: new Date(),
                 total_transaction_amount: subtotal,
-                shippingId: shippingId 
+                shippingId: shippingId,
+                orderId: newOrder.id // <-- para que todos pertenezcan al mismo id de Orden. 
             });
-        }
+        };
+
+        newOrder.totalAmount = totalAmount;
+         await newOrder.save({ transaction });
 
         await transaction.commit();
 
@@ -252,10 +275,49 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
     }
 });
 
+// debugging route.                         <-----
+app.get('/allorders', async(req, res) => {
+    try {
+        // Retrieve all orders along with associated user and product information
+        const allOrders = await Order.findAll({
+            include: [
+                { model: User }, // Include the User model
+                { model: Product } // <-- THIS IS MISSING ! 
+            ]
+        });
 
+        res.json(allOrders); // Return the list of all orders with associated user and product information
+    } catch (error) {
+        console.error('Error retrieving all orders:', error);
+        res.status(500).json({ error: 'Internal server error' }); // Return an error response if there's an error
+    }
+});
 
+// UN USUARIO PUEDE VER TODO SU HISTORIAL DE ORDENES. 
+app.get('/my-orders', isAuthenticated, async (req, res) => {
+    const userId = req.user.userId;
 
+    try {
+        const allUserOrders = await Order.findAll({
+            where: {
+                userId: userId
+            },
+            include: [{
+                model: Product
+            }, {
+                model: Shipping // Include the Shipping model here
+            }]
+        });
 
+        if (allUserOrders.length === 0) {
+            return res.status(404).json('No tienes ningun historial de ordenes.')
+        };
+
+        res.json(allUserOrders);
+    } catch (error) {
+        res.status(500).json(`Internal Server error: ${error}`);
+    }
+});
 
 
 
@@ -1340,7 +1402,7 @@ app.get('/allproducts', async (req, res) => {
     }
 });
 
-
+// FILTRAR POR CATEGORIA.
 app.get('/category/:name', async(req, res) => {
     const name = req.params.name;
     if (!name || name.length > 90) {return res.status(400).json('Introduzca una categoria valida')};
@@ -1380,9 +1442,11 @@ app.get('/searchproduct/:productname', async(req, res) => {
     }
 })
 
-  app.get('/allusers', isAuthenticated, isAdmin, async (req, res) => { // /admin/dashboard on the front end. // /admin/allusers on the server.
+app.get('/allusers', isAuthenticated, isAdmin, async (req, res) => {
     try {
-        const allUsers = await User.findAll();
+        const allUsers = await User.findAll({
+      //     include: Order
+        });
         if (allUsers && allUsers.length > 0) {
             return res.json({ message: 'All users:', users: allUsers });
         } else {
@@ -1392,6 +1456,8 @@ app.get('/searchproduct/:productname', async(req, res) => {
         return res.status(500).json({ message: `Internal Server Error: ${error}` });
     }
 });
+
+
 
 // admin puede eliminar usuario por su id.
 app.delete('/deleteuser/id/:id', isAuthenticated, isAdmin, async(req, res) => {
@@ -1410,6 +1476,11 @@ app.delete('/deleteuser/id/:id', isAuthenticated, isAdmin, async(req, res) => {
             
         } else {
 
+            await Order.destroy({where: {userId: userToDelete.id}});
+            await PaymentHistory.destroy({where: {userId: userToDelete.id}});
+            // estas 2 deletions arreglaron el error a la hora de eliminar un usuario con records/
+            // en las tablas PaymentHistory y Order.
+
             // user username y user email
             const userEmailToBan = userToDelete.email;
             const userUsernameToBan = userToDelete.username;
@@ -1419,6 +1490,9 @@ app.delete('/deleteuser/id/:id', isAuthenticated, isAdmin, async(req, res) => {
             await userToDelete.destroy();
             
             //AGREGAR EMAIL
+            const transporter = await initializeTransporter();
+            await sendMail(transporter, userToDelete.email, 'Tu cuenta ha sido eliminada', 
+            'Te escribimos para informarte que debido a no hbaer seguido nuestras reglas, hemos tenido que dar tu cuenta de baja');
 
             return res.status(201).json(`Usuario con ID: ${id} eliminado con exito`);
         }
@@ -1440,18 +1514,34 @@ app.delete('/deleteuser/:username', isAuthenticated, isAdmin, async(req, res) =>
     }
 
     try {
+
         const userToDelete = await User.findOne({ where: { username } });
         if (!userToDelete) {
             return res.status(404).json(`No se ha encontrado el usuario: ${username}`);
+            
         } else {
+            
            
+            // debugging
+            await Order.destroy({where: {userId: userToDelete.id}});
+            await PaymentHistory.destroy({where: {userId: userToDelete.id}});
+            // estas 2 deletions arreglaron el error a la hora de eliminar un usuario con records/
+            // en las tablas PaymentHistory y Order.
+
+
             const userIdToBan = userToDelete.id;
             const userEmailToBan = userToDelete.email;
 
             await DeletedUser.create({userId: userIdToBan, username, email: userEmailToBan});
 
             await userToDelete.destroy();
+
             // AGREGAR EMAIL
+
+            const transporter = await initializeTransporter();
+            await sendMail(transporter, userToDelete.email, 'Tu cuenta ha sido eliminada', 
+            'Te escribimos para informarte que debido a no hbaer seguido nuestras reglas, hemos tenido que dar tu cuenta de baja');
+
             return res.status(201).json(`Usuario: ${username} eliminado con exito`);
         }
     } catch (error) {
@@ -1473,6 +1563,11 @@ app.delete('/deleteuser/email/:email', isAuthenticated, isAdmin, async(req, res)
             where: {email}
         });
         if (userToDelete) {
+
+            await Order.destroy({where: {userId: userToDelete.id}});
+            await PaymentHistory.destroy({where: {userId: userToDelete.id}});
+            // estas 2 deletions arreglaron el error a la hora de eliminar un usuario con records/
+            // en las tablas PaymentHistory y Order.
 
             // user id
             const userIdToBan = userToDelete.id; 
@@ -2041,6 +2136,8 @@ app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
 });
 
 
+
+
 module.exports.bcrypt = bcrypt; // <-- heroku
 
 sequelize.sync({force: false}).then(() => { // <-- TEST SHIPPING HISTORIES. AND THE DEBUGGING ROUTE /ALLHISTORIES. 
@@ -2128,6 +2225,138 @@ app.delete('/shipping-addresses/:shippingAddressId', async (req, res) => {
         res.json({ message: 'Shipping address deleted successfully' });
     } catch (error) {
         console.error('Error deleting shipping address:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+
+
+
+
+
+// STRIPE, RELATION WITH PRODUCT, USER AND ORDER.
+app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, res) => {
+    const userId = req.user.userId;
+    const products = req.body.products;
+    const { nickname, reqShippingId } = req.body; // Rename shippingId to reqShippingId
+
+    let transaction;
+    let shippingId;
+
+    if (!reqShippingId) {
+        return res.status(400).json('Debe entregar al menos un dato de envio (ID o nickname) de su direccion de envio')
+    };
+
+
+    let orderId;
+    try {
+        // arreglar bug en el cual usuarios podian usar shippingId de otros usuarios.
+        // tambien se puede agreagr where: {nickname: nickname} mas tarde.
+        const userShippingInfo = await Shipping.findOne({ where: { userId: userId, shippingId: reqShippingId } });
+
+        if (!userShippingInfo) {
+            return res.status(400).json('Aun no tienes informacion de envio, o tu info de envio esta incorrecta.');
+        };
+
+
+        const shippingInfo = await Shipping.findOne({where: {shippingId: reqShippingId}});
+        if (!shippingInfo) {
+            return res.status(404).json('No se encontró la información de envío especificada.');
+        }
+
+
+        shippingId = shippingInfo.shippingId;
+        console.log(`USER SHIPPING ID: ${shippingId}`);
+        
+
+        transaction = await sequelize.transaction(); 
+        
+        const items = [];
+        const outOfStockProducts = [];
+        const paymentHistoryData = [];
+        let totalAmount = 0; 
+        
+        for (const product of products) {
+            const checkProductExists = await Product.findByPk(product.id);
+            if (!checkProductExists) {
+                await transaction.rollback();
+                return res.status(404).json('Un producto en tu carrito no existe');
+            }
+
+            product.shippingId = shippingId;
+
+            const productFromDB = await Product.findByPk(product.id, { transaction });
+
+            if (!productFromDB) {
+                await transaction.rollback();
+                return res.status(400).json({ error: `Product with ID ${product.id} not found.` });
+            }
+
+            if (product.quantity > productFromDB.stock) {
+                await transaction.rollback();
+                outOfStockProducts.push(productFromDB.name);
+                return res.status(400).json({ error: `Product ${productFromDB.product} is out of stock.` });
+            }
+
+            productFromDB.stock -= product.quantity;
+            await productFromDB.save({ transaction });
+
+            items.push({
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        name: productFromDB.product, 
+                        images: productFromDB.image ? [productFromDB.image] : [],
+                    },
+                    unit_amount: productFromDB.price * 100, // Stripe lo pone en centavos asi que se multiplica.
+                },
+                quantity: product.quantity
+            });
+
+            const subtotal = productFromDB.price * product.quantity;
+            totalAmount += subtotal;
+
+
+            // create order
+            const newOrder = await Order.create({
+                userId: userId,
+                totalAmount: totalAmount,
+                paymentStatus: 'pending' // Assuming the initial status is pending
+            }, { transaction });
+        
+            orderId = newOrder.id; // Retrieve the generated orderId
+            await newOrder.addProducts(productFromDB, { through: { quantity: product.quantity }, transaction }); // <-- FIX THIS LINE
+
+            paymentHistoryData.push({
+                userId: userId,
+                productId: product.id,
+                quantity: product.quantity,
+                purchaseDate: new Date(),
+                total_transaction_amount: subtotal,
+                shippingId: shippingId,
+                orderId: orderId  // <-- cannot find it.
+            });
+        };
+
+        await transaction.commit();
+
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: items,
+            mode: 'payment',
+            success_url: 'http://localhost:3000/paymenthistory', 
+            cancel_url: 'https://www.example.com/cancel', 
+        });
+
+        await PaymentHistory.bulkCreate(paymentHistoryData);
+
+        res.json({ id: session.id });
+    } catch (error) {
+        console.error('Error creating checkout session:', error);
+        if (transaction) {
+            await transaction.rollback();
+        }
         res.status(500).json({ error: 'Internal server error' });
     }
 });

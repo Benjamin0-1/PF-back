@@ -2,6 +2,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 const sequelize = require('../db');
 const PaymentHistory = require('./PaymentHistory');
 const Shipping = require('./Shipping');
+const Order = require('./Order');
 
 const User = sequelize.define('User', {
     first_name: {
@@ -77,10 +78,16 @@ const User = sequelize.define('User', {
 // FALTA PROBAR ESTO.
 User.beforeDestroy(async (user, options) => {
     try {
+        // Delete associated orders
+        await Order.destroy({ where: { userId: user.id } });
+        // Continue deleting associated records (PaymentHistory, Shipping, etc.)
         await PaymentHistory.destroy({ where: { userId: user.id } });
-        await Shipping.destroy({where: {userId: user.id}}); 
+        await Shipping.destroy({ where: { userId: user.id } });
+        // Add more deletion logic for other associated records if needed
+        
     } catch (error) {
-        console.error('Error deleting associated payment history:', error);
+        console.error('Error deleting associated records:', error);
+        throw error; // Rethrow the error to prevent deletion if there's an issue
     }
 });
 

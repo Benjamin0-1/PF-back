@@ -1,5 +1,6 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const sequelize = require('../db');
+const User = require('./User');
 
 const Shipping = sequelize.define('Shipping', {
     userId: {
@@ -37,6 +38,8 @@ const Shipping = sequelize.define('Shipping', {
 
 
 });
+
+// debugging
 
 module.exports = Shipping;
 
