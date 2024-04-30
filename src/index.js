@@ -294,7 +294,7 @@ app.get('/allorders', async(req, res) => {
 });
 
 // UN USUARIO PUEDE VER TODO SU HISTORIAL DE ORDENES. 
-app.get('/my-orders', isAuthenticated, async (req, res) => {
+app.get('/my-orders', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
 
     try {
@@ -1194,6 +1194,7 @@ app.post('/product', isAuthenticated, isAdmin, async (req, res) => {
             salePrice, 
             featured, 
             // IMAGE    <-- 
+            image, // added
             categoryNames
         } = req.body;
 
@@ -1218,6 +1219,7 @@ app.post('/product', isAuthenticated, isAdmin, async (req, res) => {
             attributes,
             salePrice,
             featured,
+            image, // added
             userId // Include userId
         });
 
@@ -1310,26 +1312,32 @@ app.put('/update-product/:productId', isAuthenticated, isAdmin, async(req, res) 
 });
 
 // se utiliza en UpdateProduct Component. 
-app.get('/product-detail/:id', async(req, res) => {
+app.get('/product-detail/:id', async (req, res) => { // <-- se puede utilizar en Detail component.
     const id = req.params.id;
-    if (!id) {return res.status(400).json({id: false, message: 'Debe incluir id de producti'})};
+    if (!id) {
+        return res.status(400).json({ id: false, message: 'Debe incluir id de producto' });
+    }
 
     try {
-        
         const productDetail = await Product.findOne({
-            where: {id: id}
+            where: { id: id },
+            include: [
+                Category,
+                Brand,
+                Review
+            ]
         });
 
         if (!productDetail) {
-            return res.status(404).json({productFound: false, message: `Producto con id: ${id} no encontrado`});
-        };
+            return res.status(404).json({ productFound: false, message: `Producto con id: ${id} no encontrado` });
+        }
 
-        res.json(productDetail)
-
+        res.json(productDetail);
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`);
     }
 });
+
 
 //REPORTES: 
 
@@ -1656,23 +1664,31 @@ app.get('/products/alphorder', async(req, res) => {
 });
 
 // ruta para buscar producto especifico por su nombre. 
-app.get('/search/product/:name', async(req, res) => {
+// Route to search for a specific product by its name.
+app.get('/search/product/:name', async (req, res) => {
     const name = req.params.name;
-    if (!name || name.length > 90) {return res.status(400).json('Introduzca un nombre valido')};
+    if (!name || name.length > 90) {
+        return res.status(400).json('Please provide a valid product name');
+    }
 
     try {
         const products = await Product.findAll({
-            include: Category, Brand,
+            include: [Category, Brand, Review], // Incluye todos los modelos.
             where: {
                 product: name
             }
         });
-        if (products.length === 0) {return res.status(404).json(`No se encontraron productos con el nombre: ${name}`)};
-        res.json({resultado: products.length, productos: products})
+
+        if (products.length === 0) {
+            return res.status(404).json(`No products found with the name: ${name}`);
+        }
+
+        res.json({ resultCount: products.length, products: products });
     } catch (error) {
-        res.status(500).json(`Internal Server Error: ${error}`)
+        res.status(500).json(`Internal Server Error: ${error}`);
     }
 });
+
 
 //ruta para buscar por precio mayor a: x
 app.get('/searchbypricebigger/:price', async (req, res) => {
@@ -2140,10 +2156,14 @@ app.post('/ban/:userId', isAuthenticated, isAdmin, async(req, res) => {
         }
     }); // <-- will always be found thanks to isAuthenticated
 
+    if (!checkUser) {
+        return res.status(404).json({error: 'No existe el usuario ingresado', userNotFound: true})
+    };
+
 
     // check if user is trying to ban an admin or himself.
     if (checkUser.is_admin || checkUser.id === userId) {
-        return res.status(400).json('No puedes banear a otro usuario Admin ni a ti mismo.')
+        return res.status(400).json({error: 'No puedes banear a otro usuario Admin ni a ti mismo.', invalidBan: true});
     };
     
     try {
