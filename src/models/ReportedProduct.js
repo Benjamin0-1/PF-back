@@ -53,7 +53,7 @@ const ReportedProduct = sequelize.define('ReportedProduct', {
     userId: {
         type: DataTypes.INTEGER,
         allowNull: false
-    }
+    } // agreagr : reason
 });
 
 // BUGS: <-- EL COUNT NO SE ACTUALIZA.

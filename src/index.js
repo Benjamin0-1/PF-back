@@ -859,7 +859,7 @@ app.post('/login', async (req, res) => { // FALTA AGREGAR: SI USUARIO ES ADMIN Y
 
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!passwordMatch) {
-            return res.status(401).json({ message: 'Invalid username or password.' });
+            return res.status(401).json({ message: 'Invalid username or password.', invalidCredentials: true });
         }
 
         // Generate new tokens
@@ -1749,6 +1749,22 @@ app.get('/searchbypriceless/:price', async (req, res) => {
     }
 });
 
+app.get('/all-deleted-users', isAuthenticated, isAdmin, async(req, res) => {
+    try {
+        
+        const allBannedUsers = await DeletedUser.findAll();
+
+        if (allBannedUsers.length === 0) {
+            return res.status(404).json('No se han encontrado usuarios eliminados');
+        };
+        res.json(allBannedUsers);
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+});
+
+
 //ruta para buscar por rango de precio entre: y x
 app.get('/searchbypricerange/:start/:end', async(req, res) => {
     const start = req.params.start;
@@ -1935,7 +1951,7 @@ app.post('/products/user/favorites', isAuthenticated, isUserBanned, async (req, 
         
         const existingFavorite = await Favorite.findOne({ where: { userId, productId } });
         if (existingFavorite) {
-            return res.status(400).json(`Product with id ${productId} already in favorites.`);
+            return res.status(400).json({error: `Product with id ${productId} already in favorites.`, productAlreadyAddedToFavorites: true});
         }
 
         await Favorite.create({ userId, productId });
