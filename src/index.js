@@ -690,6 +690,27 @@ app.get('/users/info/details/:username', isAuthenticated, isAdmin, async(req, re
     }
 });
 
+app.get('/user-details/:id', isAuthenticated, isAdmin, async(req, res) => {
+    const id = req.params.id;
+    if (!id) {
+        return res.status(400).json({error: 'Falta id', idNotProvided: true});
+    };
+
+    try {
+        
+        const userDetails = await User.findByPk(id);
+        if (!userDetails) {
+            return res.status(404).json({error: `Usuario con id: ${id} no existe`, userNotFound: true});
+        };
+
+        res.json(userDetails)
+
+    } catch (error) {
+        res.status(500).json({error: 'Internal Server Error', error});
+    }
+
+});
+
 
 async function isTokenBanned(token) {
     const bannedToken = await BannedToken.findOne({where: {token: token}});
@@ -1199,6 +1220,9 @@ app.post('/product', isAuthenticated, isAdmin, async (req, res) => {
             featured,
             userId // Include userId
         });
+
+        // revisar si id de marca existe. 
+        // si es que no existe, se puede dar un error o crearla de una vez.
 
         if (categoryNames && categoryNames.length > 0) {
             const categories = await Promise.all(categoryNames.map(async (categoryData) => {
@@ -1971,61 +1995,103 @@ app.get('/products/reported', isAuthenticated, isAdmin, async (req, res) => {
     }
 });
 
-//ruta de filtros COMBINADOS.
-app.get('/products/filter/:start/:end/:startRating/:endRating/:category', async (req, res) => {
-    const { start, end, startRating, endRating, category } = req.params; 
 
-    if (!start && !end && !startRating && !endRating && !category) {
-        return res.status(400).json('Debe incluir por lo menos 1 filtro')
-    };
+// Ruta de filtros COMBINADOS.
+app.get('/products/filter/:start/:end/:startRating/:endRating/:category/:brand', async (req, res) => {
+    const { start, end, startRating, endRating, category, brand } = req.params;
 
-    // regex.
+    if (!start && !end && !startRating && !endRating && !category && !brand) {
+        return res.status(400).json('Debe incluir por lo menos 1 filtro');
+    }
+
+    // Regex.
     const numberRegex = /^\d+(\.\d+)?$/;
     if (!numberRegex.test(start) || !numberRegex.test(end) || !numberRegex.test(startRating) || !numberRegex.test(endRating)) {
         return res.status(400).json('Los valores de inicio, fin y calificación deben ser números o decimales.');
     }
 
     try {
+        let filter = {
+            price: {
+                [Op.between]: [start, end]
+            }
+        };
+
+        if (category) {
+            filter['$categories.category$'] = category;
+        }
+
+        if (brand) {
+            filter['$brand.brand$'] = brand;
+        }
 
         const filteredProducts = await Product.findAll({
-            where: {
-                price: {
-                    [Op.between]: [start, end]
-                }
-            },
+            where: filter,
             include: [
                 {
                     model: Category,
-                    where: {
-                        category: category
-                    },
+                    attributes: [], // se puede excluir lo que quieras
+                    through: { attributes: [] }, // aqui tambien
+                },
+                {
                     model: Review,
                     where: {
                         rating: {
                             [Op.between]: [startRating, endRating]
                         }
                     }
+                },
+                {
+                    model: Brand,
+                    attributes: [] // y aqui.
                 }
-            
             ]
         });
 
-        console.log(`FILTERED PRODUCTS: ${filteredProducts}`);
-        filteredProducts.forEach(product => {
-            console.log(product.toJSON());
-        })
+        console.log('FILTERED PRODUCTS:', filteredProducts);
         
         if (filteredProducts.length === 0) {
-            return res.status(404).json('No existen productos con los filtros aplicados')
-        };
+            return res.status(404).json('No existen productos con los filtros aplicados');
+        }
 
-        res.json(filteredProducts)
+        res.json(filteredProducts);
 
     } catch (error) {
         console.error('Error filtering products:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+// MIDDLEWARE PARA USUARIOS BANEADOS.
+async function isUserBanned(req, res, next) {
+    try {
+        const userId = req.user.userId;
+        const user = await User.findByPk(userId);
+
+        if (!user) {
+            return res.status(400).json('Usuario no encontrado');
+        }
+
+        if (user.banned && user.ban_expiration && new Date() > new Date(user.ban_expiration)) {
+            user.banned = false;
+            user.ban_expiration = null;
+            await user.save();
+        }
+
+        if (user.banned) {
+            return res.status(403).json({ error: 'Tu cuenta aún está baneada' });
+        }
+
+        // If user is not banned, proceed to the next middleware or route handler
+        next();
+    } catch (error) {
+        console.error("Error checking ban status:", error);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+};
+
+
+
 
 // MIDDLEWARE PARA USUARIOS BANEADOS.
 async function isUserBanned(req, res, next) {
@@ -2361,6 +2427,86 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
     }
 });
 
+
+
+ruta para crear producto con brandId cambiada a brandName.
+app.post('/product', isAuthenticated, isAdmin, async (req, res) => {
+    try {
+        const { 
+            brandName, // Change brandId to brandName
+            product, 
+            stock, 
+            price, 
+            description, 
+            tags, 
+            attributes, 
+            salePrice, 
+            featured, 
+            // IMAGE    <-- 
+            categoryNames
+        } = req.body;
+
+        const userId = req.user.userId; // Extract userId from the decoded JWT token
+        // no se debe agregar review al producto a la hora de crearlo, esa es tarea de los usuarios.
+        // check that brandId exists.
+
+        // revisar si el producto ya existe
+        const checkProductExists = await Product.findOne({
+            where: {product: product}
+        });
+        if (checkProductExists) {return res.status(400).json(`El producto con nombre: ${product} ya existe`)};
+
+        // Create or find the brand by name
+        let brand = await Brand.findOne({ where: { brand: brandName } });
+        if (!brand) {
+            // If the brand does not exist, create it
+            brand = await Brand.create({ brand: brandName });
+        }
+
+        // Create the product with the provided attributes, userId, and brandId
+        const createdProduct = await Product.create({
+            brandId: brand.id, // Use the brand's id
+            product,
+            stock,
+            price, 
+            description,
+            tags,
+            attributes,
+            salePrice,
+            featured,
+            userId // Include userId
+        });
+
+        // Revisar si las categorías existen o crearlas
+        if (categoryNames && categoryNames.length > 0) {
+            const categories = await Promise.all(categoryNames.map(async (categoryData) => {
+                // Find or create category by name
+                let category = await Category.findOne({ where: { category: categoryData.name } });
+                if (!category) {
+                    category = await Category.create({ category: categoryData.name, description: categoryData.description });
+                }
+                return category;
+            }));
+            await createdProduct.addCategories(categories);
+        }
+
+        //SEND EMAIL. Al crear un producto TODOS los usuarios recibiran un correo con el nombre del nuevo producto agreagdo.
+        const transporter = await initializeTransporter();
+        const users = await User.findAll();
+        for (const user of users) {
+            if (user.email) {
+                const userEmail = user.email;
+                await sendMail(transporter, userEmail, 
+                `Hemos agregado un nuevo producto`, `Que tal? te escribimos porque hemos agregado un nuevo producto a la 
+                tienda, ya disponible para adquirir ! ${createdProduct.product}`);
+            }
+        }
+        
+        res.status(201).json({ message: `Product added successfully`, product: createdProduct });
+    } catch (error) {
+        res.status(500).json({ error: `Internal Server Error: ${error}` });
+    }
+});
 
 
 */
