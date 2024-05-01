@@ -115,7 +115,7 @@ app.post('/verify', isAuthenticated, async (req, res) => {
             secret: user.otp_secret, // va a vericar con la column otp_secret.
             encoding: 'base32',
             token: otp,
-            window: 2
+            window: 2 // <-- se puede cambiar a 1: para que dura 30 segundos.
         });
         
         if (verified) {
@@ -372,10 +372,6 @@ app.post('/user/shipping', isAuthenticated, isUserBanned, async (req, res) => {
             return res.status(400).json({error: 'Ya tienes una dirección de envío con el mismo apodo.', nicknameAlreadyInUse: true});
         }
         
-        const addressCount = await Shipping.count({ where: { userId: userId } });
-        if (addressCount >= 10) {
-            return res.status(400).json({error: 'Has alcanzado el límite máximo de direcciones de envío (10).', maxShipping: true});
-        }
 
         // Create new shipping address
         const newShippingInfo = await Shipping.create({
@@ -431,6 +427,62 @@ app.put('/update-shipping-info', isAuthenticated, isUserBanned, async (req, res)
         res.status(500).json(`Error interno del servidor: ${error}`);
     }
 });
+
+// Route to delete a shipping info by shippingId (this is to interact with the front-end ShippingDetail component).
+app.delete('/delete-shipping-info/:shippingId', isAuthenticated, async (req, res) => {
+    const userId = req.user.userId;
+    const shippingId = req.params.shippingId; // <-- shippingId
+
+    if (!shippingId) {
+        return res.status(400).json({ error: 'Missing shippingId field', shippingIdNotProvided: true });
+    };
+
+    try {
+
+        // si el usuario ha comprado utilizando la direccion que intenta eliminar, no se debe dejar hacer tal operacion.
+        const ordersCount = await Order.count({
+            where: {
+                shippingId: shippingId
+            }
+        });
+       
+        if (ordersCount > 0) {
+            return res.status(400).json({ error: 'Cannot delete shipping address because it is associated with existing orders', invalidAddrDeletion: true });
+        };
+
+
+        const checkAddr = await Shipping.findByPk(shippingId);
+        if (!checkAddr) {
+            return res.status(404).json({ error: 'Shipping address not found', shippingAddrNotFound: true });
+        };
+
+        // If exists, then check that it belongs to the specific user.
+        const userAddr = await Shipping.findOne({
+            where: {
+                userId: userId,
+                shippingId: shippingId
+            }
+        });
+
+        if (!userAddr) {
+            return res.status(400).json({ error: 'You do not own this shipping address' , ownershipError: true});
+        };
+
+        // If all these checks passed, then the user surely owns such shippingId
+        await Shipping.destroy({
+            where: {
+                userId,
+                shippingId
+            }
+        });
+        res.status(201).json('Address deleted successfully');
+
+    } catch (error) {
+        console.error(`Error deleting shipping address: ${error}`);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
 
 
 // ruta para que un usuario pueda ver su info de envio.
@@ -660,6 +712,9 @@ app.put('/users/grant-admin/:id', isAuthenticated, async(req, res) => { // debe 
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+// make a user admin by username.
+
 
 // ruta para que un admin pueda ver todos los datos de un usuario especifico
 app.get('/users/info/details/:username', isAuthenticated, isAdmin, async(req, res) => {
@@ -1755,7 +1810,7 @@ app.get('/searchbyprice/asc', async (req, res) => {
             return res.status(404).json({error: 'No se encontraron productos', productNotFound: true});
         };
 
-        res.json({ resultado: products.length, products: products });
+        res.json(products);
 
     } catch (error) {
         return res.status(500).json(`Internal Server Error: ${error}`);
