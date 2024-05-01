@@ -115,7 +115,7 @@ app.post('/verify', isAuthenticated, async (req, res) => {
             secret: user.otp_secret, // va a vericar con la column otp_secret.
             encoding: 'base32',
             token: otp,
-            window: 2 // <-- se puede cambiar a 1: para que dura 30 segundos.
+            window: 1 // <-- se puede cambiar a 1: para que dura 30 segundos. estaba en 2
         });
         
         if (verified) {
@@ -887,6 +887,7 @@ app.get('/test/admin', isAuthenticated, isAdmin, (req, res) => {
 app.post('/login', async (req, res) => { // FALTA AGREGAR: SI USUARIO ES ADMIN Y TIENE 2FA ACTIVADO ENTONCES REQUERIR OTP.
     const username = req.body.username;  // tambien se puede solicitar otp para eliminar usuario, producto, etc.
     const password = req.body.password;
+    const otp = req.body.otp;
 
     try {
         
@@ -904,7 +905,23 @@ app.post('/login', async (req, res) => { // FALTA AGREGAR: SI USUARIO ES ADMIN Y
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!passwordMatch) {
             return res.status(401).json({ message: 'Invalid username or password.', invalidCredentials: true });
-        }
+        };
+
+
+        // si el usuario es loggeado con exito, podemos verificar 2fa si esta activado y si es admin.
+        let verified = true // <-- evitar error de undefined.
+        if (user.is_admin && user.two_factor_authentication) {
+             verified = speakeasy.totp.verify({
+                secret: user.otp_secret,
+                encoding: 'base32',
+                token: otp,
+                window: 1
+            })
+        };
+
+        if (!verified) {
+            return res.status(401).json({message: 'invalid otp', invalidOtp: true});
+        };
 
         // Generate new tokens
         const accessToken = jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '50m' }); 
@@ -912,7 +929,7 @@ app.post('/login', async (req, res) => { // FALTA AGREGAR: SI USUARIO ES ADMIN Y
 
         res.json({ message: 'Login successful', accessToken, refreshToken });
     } catch (error) {
-        return res.status(500).json({ message: 'Internal Server Error.' });
+        res.status(500).json(`Internal Server Error: ${error}`)
     }
 });
 
