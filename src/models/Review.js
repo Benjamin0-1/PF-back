@@ -38,6 +38,15 @@ Review.beforeDestroy(async (instance, options) => {
     }
 });
 
+// Inside associations.js or in the Review model file
+
+Review.associate = (models) => {
+    // Define associations here
+    Review.belongsTo(models.User, { foreignKey: 'userId' }); // One-to-many with User
+    Review.belongsTo(models.Product, { foreignKey: 'productId' }); // One-to-many with Product
+};
+
+
 
 // associations.js 
 /*
