@@ -1744,6 +1744,46 @@ app.get('/searchbypriceless/:price', async (req, res) => {
     }
 });
 
+// this route returns all of the products ordered by price.
+app.get('/searchbyprice/asc', async (req, res) => {
+    try {
+        const products = await Product.findAll({
+            order: [['price', 'ASC']]
+        });
+
+        if (products.length === 0) {
+            return res.status(404).json({error: 'No se encontraron productos', productNotFound: true});
+        };
+
+        res.json({ resultado: products.length, products: products });
+
+    } catch (error) {
+        return res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+// most expensive to cheaper
+app.get('/searchbyprice/desc', async(req, res) => {
+
+    try {
+        
+        const products = await Product.findAll({
+            order: [['price', 'DESC']]
+        });
+
+        if (products.length === 0) {
+            return res.status(404).json({error: 'No existen productos', productNotFound: true})
+        };
+        
+        res.json(products);
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+
+});
+
+
 app.get('/all-deleted-users', isAuthenticated, isAdmin, async(req, res) => {
     try {
         
@@ -1960,6 +2000,31 @@ app.post('/products/user/favorites', isAuthenticated, isUserBanned, async (req, 
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+// ruta para eliminar un favorito por id.
+app.delete('/delete-favorite/:id', isAuthenticated, async (req, res) => {
+    const userId = req.user.userId;
+    const id = req.params.id;
+
+    try {
+        const favorite = await Favorite.findByPk(id);
+        
+        if (!favorite) {
+            return res.status(404).json({ error: `Product with id: ${id} does not exist`, productNotFound: true });
+        }
+
+        if (favorite.userId !== userId) {
+            return res.status(403).json({ error: `You are not authorized to delete this favorite`, unauthorized: true });
+        }
+
+        await favorite.destroy();
+
+        res.status(200).json({ message: `Favorite with id: ${id} has been deleted successfully` });
+    } catch (error) {
+        res.status(500).json({ error: `Internal Server Error: ${error.message}` });
+    }
+});
+
 
 // ruta para cambiar un producto de su categoria a otra. <-- falta verificar que funcione.
 app.put('/update-product-category', isAuthenticated, isAdmin, async(req, res) => {

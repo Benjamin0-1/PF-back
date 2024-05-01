@@ -53,7 +53,12 @@ const ReportedProduct = sequelize.define('ReportedProduct', {
     userId: {
         type: DataTypes.INTEGER,
         allowNull: false
-    } // agreagr : reason
+    },
+    reason: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: 'Opino que este producto es muy malo y no deberia existir'
+    }
 });
 
 // BUGS: <-- EL COUNT NO SE ACTUALIZA.

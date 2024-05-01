@@ -1,6 +1,6 @@
 const { Sequelize } = require('sequelize');
 
-/*
+
 const sequelize = new Sequelize({
     dialect: 'mysql',
     host: 'localhost',
@@ -12,7 +12,7 @@ const sequelize = new Sequelize({
 
 module.exports = sequelize;
 
-*/
+
 
 /*
 // DEPLOYED ON HEROKU.
@@ -32,6 +32,8 @@ const sequelize = new Sequelize({
 }); */ // <-- old one, account was blocked.
 
 
+
+/*
 const sequelize = new Sequelize({
   database: 'jwdy1f77ygcuoc3e',
   username: 'k2m6tdfsi3wsepaa',
@@ -45,7 +47,7 @@ const sequelize = new Sequelize({
     }
   },
   logging: false
-});
+}); 
 
 
-module.exports = sequelize;
+module.exports = sequelize; */
