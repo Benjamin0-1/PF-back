@@ -208,7 +208,7 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
             if (product.quantity > productFromDB.stock) {
                 await transaction.rollback();
                 outOfStockProducts.push(productFromDB.name);
-                return res.status(400).json({ error: `Product ${productFromDB.product} is out of stock.` });
+                return res.status(400).json({ error: `Product ${productFromDB.product} is out of stock.`, outOfStock: true });
             }
 
             productFromDB.stock -= product.quantity;
@@ -276,7 +276,7 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
 });
 
 // debugging route.                         <-----
-app.get('/allorders', async(req, res) => {
+app.get('/allorders',isAuthenticated, isAdmin, async(req, res) => {
     try {
         // Retrieve all orders along with associated user and product information
         const allOrders = await Order.findAll({
@@ -369,12 +369,12 @@ app.post('/user/shipping', isAuthenticated, isUserBanned, async (req, res) => {
         // nickname deberia ser unico.
         const existingShipping = await Shipping.findOne({ where: { userId: userId, nickname: nickname } });
         if (existingShipping) {
-            return res.status(400).json('Ya tienes una dirección de envío con el mismo apodo.');
+            return res.status(400).json({error: 'Ya tienes una dirección de envío con el mismo apodo.', nicknameAlreadyInUse: true});
         }
         
         const addressCount = await Shipping.count({ where: { userId: userId } });
         if (addressCount >= 10) {
-            return res.status(400).json('Has alcanzado el límite máximo de direcciones de envío (10).');
+            return res.status(400).json({error: 'Has alcanzado el límite máximo de direcciones de envío (10).', maxShipping: true});
         }
 
         // Create new shipping address
@@ -395,7 +395,6 @@ app.post('/user/shipping', isAuthenticated, isUserBanned, async (req, res) => {
 
 
 // ruta para que un usuario pueda ACTUALIZAR su info de envio.
-// FALTA PROBAR
 app.put('/update-shipping-info', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
     const { nickname, id, country, city, zip_code } = req.body;
@@ -435,7 +434,6 @@ app.put('/update-shipping-info', isAuthenticated, isUserBanned, async (req, res)
 
 
 // ruta para que un usuario pueda ver su info de envio.
-//FALTA PROBAR.
 app.get('/shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
      const userId = req.user.userId;
      
@@ -458,15 +456,6 @@ app.get('/shipping-info', isAuthenticated, isUserBanned, async(req, res) => {
      }
 });
 
-//debugging route:
-app.get('/allshipping', async(req, res) => {
-    try {
-        const allShipping = await Shipping.findAll();
-        res.json(allShipping)
-    } catch (error) {
-        res.json(error)
-    }
-})
 
 // :END OF STRIPE TESTING 
 
@@ -1312,7 +1301,7 @@ app.put('/update-product/:productId', isAuthenticated, isAdmin, async(req, res) 
 });
 
 // se utiliza en UpdateProduct Component. 
-app.get('/product-detail/:id', async (req, res) => { // <-- se puede utilizar en Detail component.
+app.get('/product-detail/:id', async (req, res) => {
     const id = req.params.id;
     if (!id) {
         return res.status(400).json({ id: false, message: 'Debe incluir id de producto' });
@@ -1324,7 +1313,12 @@ app.get('/product-detail/:id', async (req, res) => { // <-- se puede utilizar en
             include: [
                 Category,
                 Brand,
-                Review
+                {
+                    model: Review,
+                    include: [
+                        User // Include the User model associated with Review
+                    ]
+                }
             ]
         });
 
@@ -1337,6 +1331,7 @@ app.get('/product-detail/:id', async (req, res) => { // <-- se puede utilizar en
         res.status(500).json(`Internal Server Error: ${error}`);
     }
 });
+
 
 
 //REPORTES: 
@@ -1811,7 +1806,10 @@ app.delete('/product/:id', isAuthenticated, isAdmin, async (req, res) => {
         const product = await Product.findByPk(id);
         if (!product) {
             return res.status(404).json(`No hay producto con id: ${id}`);
-        }
+        };
+
+        // delete Favorite associations.
+        await Favorite.destroy({where: {productId: id}});
 
         // revisar si el producto ha sido reportado.
         // si es que lo ha sido, entonces eliminar todos los reportes antes de eliminar el producto.

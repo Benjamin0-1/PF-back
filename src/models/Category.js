@@ -9,7 +9,7 @@ const Category = sequelize.define('Category', {
     },
     description: {
         type: DataTypes.TEXT,
-        allowNull: false
+        allowNull: true
     }
 }, 
 {
