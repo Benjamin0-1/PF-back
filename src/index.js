@@ -2240,7 +2240,7 @@ app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
 
 module.exports.bcrypt = bcrypt; // <-- heroku
 
-sequelize.sync({alter: true}).then(() => { // <-- TEST SHIPPING HISTORIES. AND THE DEBUGGING ROUTE /ALLHISTORIES. 
+sequelize.sync({force: true}).then(() => { // <-- TEST SHIPPING HISTORIES. AND THE DEBUGGING ROUTE /ALLHISTORIES. 
     const PORT = process.env.PORT || 3001; 
     app.listen(PORT, () => {
         console.log(`Server running on Port: ${PORT}`);
