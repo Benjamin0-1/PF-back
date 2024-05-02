@@ -614,7 +614,7 @@ function generateToken() {
 
 // ESTO NO TIENE EFECTO EN USUARIOS DE GOOGLE.
 // function must also send a token/code with an exp date so that certain users can access this page/route to reset password.
-app.post('/reset-password-request', isAuthenticated, isUserBanned, async (req, res) => {
+app.post('/reset-password-request', async (req, res) => { // <-- se ha quitado el middleware de authenticacion.
     const { email } = req.body;
 
     if (!email) {
@@ -625,7 +625,7 @@ app.post('/reset-password-request', isAuthenticated, isUserBanned, async (req, r
         const user = await User.findOne({ where: { email } });
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found.' });
+            return res.status(404).json({ message: 'Email not found.' });
         }
 
         const resetToken = generateToken();
@@ -642,7 +642,7 @@ app.post('/reset-password-request', isAuthenticated, isUserBanned, async (req, r
         console.log(`Reset token sent to user with email: ${email}`);
         console.log(`reset token: ${resetToken}`);
 
-        return res.status(200).json({ resetToken, expirationDate: tokenExpiration });
+        return res.status(200).json({ resetToken, expirationDate: tokenExpiration }); // AQUI SE DEBE QUITAR EL TOKEN EN LA VERSION FINAL.
     } catch (error) {
         console.error('Error resetting password:', error);
         return res.status(500).json({ error: 'Internal Server Error' });
@@ -652,10 +652,9 @@ app.post('/reset-password-request', isAuthenticated, isUserBanned, async (req, r
 
 // NO TIENE EFECTO EN USUARIOS DE GOOGLE.
 // this route must verify the code so that only users who requested a password reset can access it. 
-app.post('/reset-password', isAuthenticated, isUserBanned, async (req, res) => {
-    const userId = req.user.userId;
-    const resetToken = req.body.resetToken;
 
+app.post('/reset-password', async (req, res) => {  //< -- ya no require autenticacion.
+    const resetToken = req.body.resetToken;
     const newPassword = req.body.newPassword;
     const confirmNewPassword = req.body.confirmNewPassword;
 
@@ -664,27 +663,23 @@ app.post('/reset-password', isAuthenticated, isUserBanned, async (req, res) => {
     }
 
     try {
-        const user = await User.findByPk(userId);
+        const user = await User.findOne({ where: { password_reset_token: resetToken } });
 
         if (!user) {
-            return res.status(404).json({ message: 'User not found.' });
+            return res.status(404).json({ message: 'Invalid reset token' });
         }
 
-        if (user.password_reset_token !== resetToken || user.password_reset_token_expires < new Date()) {
-            return res.status(400).json({ message: 'Invalid or expired reset token.' });
-        }
-
-        if (!newPassword || !confirmNewPassword || newPassword !== confirmNewPassword) {
-            return res.status(400).json({ message: 'Credentials must be provided and must also match.' });
+        if (!newPassword || newPassword !== confirmNewPassword) {
+            return res.status(400).json({ message: 'Passwords do not match' });
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await user.update({ password: hashedPassword, password_reset_token: null, password_reset_token_expires: null });
 
-        return res.status(200).json({ message: 'Password reset successful.' });
+        return res.status(200).json({ message: 'Password reset successful' });
     } catch (error) {
         console.error('Error resetting password:', error);
-        return res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
