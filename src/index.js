@@ -2494,35 +2494,56 @@ app.get('/all-banned-users', isAuthenticated, isAdmin, async(req, res) => {
 
 // FULFILL ORDERS.
 // solamente se puede pasar de pendiente a completado, no al reves.
-app.put('/orders/fullfil', isAuthenticated, isAdmin, async(req, res) => {
+app.put('/orders/fulfill', isAuthenticated, isAdmin, async (req, res) => {
     const orderId = req.body.orderId;
 
     if (!orderId) {
-        return res.status(400).json({message: 'missing orderId field', missingOrderId: true});
-    };
+        return res.status(400).json({ message: 'missing orderId field', missingOrderId: true });
+    }
 
     try {
-        
         const order = await Order.findByPk(orderId);
 
         if (!order) {
-            return res.status(404).json({message: `order number: ${orderId} not found`, orderNotFound: true});
-        };
+            return res.status(404).json({ message: `order number: ${orderId} not found`, orderNotFound: true });
+        }
 
-        // <-- if an order is already fulfilled, it can't be set back to 'pending'
         if (order.paymentStatus === 'fulfilled') {
-            return res.status(400).json({error: `order ${orderId} is already fulfilled`, orderAlreadyFulfilled: true});
-        };
+            return res.status(400).json({ error: `order ${orderId} is already fulfilled`, orderAlreadyFulfilled: true });
+        }
 
-        await order.update({
-            paymentStatus: 'fulfilled'});
+        await order.update({ paymentStatus: 'fulfilled' });
 
-        res.status(201).json(`Order number ${orderId} successfully fulfilled`)
+    
+        res.json('orden fulfilled correctly')
 
+    } catch (error) {
+        res.status(500).json({ error: `Internal Server Error: ${error}` });
+    }
+});
+
+
+// search bar in component: AllPendingOrders .
+app.get('/search-orders/:id', isAuthenticated, isAdmin, async(req, res) => {
+    const { id } = req.params; 
+
+    if (!id) {
+        return res.status(400).json({ error: 'missing id', missingId: true });
+    }
+
+    try {
+        const findOrder = await Order.findByPk(id);
+
+        if (!findOrder) {
+            return res.status(404).json({ message: `order with id: ${id} was not found`, orderNotFound: true });
+        }
+
+        res.json(findOrder);
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`);
     }
 });
+
 
 // Usuario puede filtrar por ordenes entre pending y completado.
 // IMPORTANTE: <-- esto se utilizara para aplicar filtros en /orders en el frontend
@@ -2625,12 +2646,62 @@ app.get('/all-orders/pending', isAuthenticated, isAdmin, async(req, res) => {
             return res.status(404).json({message: 'There are no pending orders yet', noPendingOrders: true});
         };
 
-        res.json(allPendingOrders)
+        res.json({totalCount: allPendingOrders.length, allPendingOrders})
 
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`)
     }
 });
+
+// this route must return the order of all the pending orders by price ascending
+app.get('/all-orders/pending/asc', isAuthenticated, isAdmin, async (req, res) => {
+    try {
+        const allPendingOrders = await Order.findAll({
+            where: {
+                paymentStatus: 'pending'
+            },
+            include: [
+                { model: User },
+                { model: Product }
+            ],
+            order: [['totalAmount', 'ASC']] // Sort by totalAmount in ascending order
+        });
+
+        if (allPendingOrders.length === 0) {
+            return res.status(404).json({ message: 'There are no pending orders yet', noPendingOrders: true });
+        }
+
+        res.json({ totalCount: allPendingOrders.length, allPendingOrders });
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+// this route must return the order of all the pending orders by price descending
+app.get('/all-orders/pending/desc', isAuthenticated, isAdmin, async (req, res) => {
+    try {
+        const allPendingOrders = await Order.findAll({
+            where: {
+                paymentStatus: 'pending'
+            },
+            include: [
+                { model: User },
+                { model: Product }
+            ],
+            order: [['totalAmount', 'DESC']] // Sort by totalAmount in descending order
+        });
+
+        if (allPendingOrders.length === 0) {
+            return res.status(404).json({ message: 'There are no pending orders yet', noPendingOrders: true });
+        }
+
+        res.json({ totalCount: allPendingOrders.length, allPendingOrders });
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+
 
 // see all fulfilled orders. <-- admin dashboard.
 app.get('/all-orders/fulfilled', isAuthenticated, isAdmin, async(req, res) => {
