@@ -26,6 +26,7 @@ const Favorite = require('./models/Favorite');
 const ReportedProduct = require('./models/ReportedProduct');
 const DeletedUser = require('./models/DeletedUser');
 const Order = require('./models/Order');
+const Newsletter = require('./models/Newsletter'); // <---- NEWSLETTER.
 
 const sequelize = require('./db');
 const models = require('./models/associations');
@@ -883,6 +884,8 @@ app.post('/login', async (req, res) => { // FALTA AGREGAR: SI USUARIO ES ADMIN Y
     const username = req.body.username;  // tambien se puede solicitar otp para eliminar usuario, producto, etc.
     const password = req.body.password;
     const otp = req.body.otp;
+
+    if (!username && !password) {return res.status(400).json({missingCredentials: 'must include credentials'})};
 
     try {
         
@@ -2252,6 +2255,104 @@ async function isUserBanned(req, res, next) {
     }
 };
 
+//NEWSLETTER ROUTES:
+app.post('/newsletter/:email', async(req, res) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; 
+    const email = req.params.email;
+    if (!email || !emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format', invalidEmail: true });
+    }
+
+
+    try {
+
+        // first check if the email is already in the Newsletter itself to avoid showing a db error.
+        const emailAlreadyInNewsletter = await Newsletter.findOne({where: {email}});
+        if (emailAlreadyInNewsletter) {
+            return res.status(400).json({message: 'email already in newsletter', emailAlreadyAdded: true})
+        };
+
+        // check if email to be inserted in the newsletter model, first exists or not in the User model.
+        const checkEmailExists  = await User.findOne({where: {email: email}});
+        if (checkEmailExists) {
+            return res.status(400).json({message: 'email already in User model', emailInUserModel: true});
+        };
+
+        await Newsletter.create({email});
+
+        res.status(201).json({successMessage: 'email added to newsletter successfully', success: true});
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    };
+});
+
+// admins can email all of the newsletter emails.
+// if an email form newsletter is also now in the User table, then it must be deleted on the 'fly' and emails not sent to 
+//such addresses
+app.post('/email-all-newsletter', isAuthenticated, isAdmin, async(req, res) => {
+    const {subject, body} = req.body;
+    if (!subject || !body) {
+        return res.status(400).json({message: 'missing fields', missingFields: true});
+    };
+
+    try {
+
+        // this must check if any of the newletter emails also now exist in the User table.
+        const newsletterEmails = await Newsletter.findAll();
+        const allUserEmails = await User.findAll({attributes: ['email']});
+
+        // check if there are any matches, if there are: delete those emails from the newletter model
+        // before sending the emails
+        const userEmails = allUserEmails.map(user => user.email); // <-- extract all emails from the User model.
+
+        const emailsToRemove = []; // <-- emails to delete from the Newsletter model.
+        const emailsToSend = [];
+
+        // filter.
+        newsletterEmails.forEach(emailObj => {
+            if (userEmails.includes(emailObj.email)) {
+                emailsToRemove.push(emailObj.email);
+            } else {
+                emailsToSend.push(emailObj.email);
+            }
+        });
+
+
+        await Newsletter.destroy({where: {email: emailsToRemove}});
+
+        const transporter = await initializeTransporter();
+
+        await Promise.all(emailsToSend.map(async (email) => {
+            await sendMail(transporter, email, subject, body)
+        }));
+
+        console.log(`Sending emails to newsletter users: ${emailsToSend.join(', ')}`);
+
+        res.json({successMessage: 'Emails sent successfully'});
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+
+});
+
+// get all of the emails in the newsletter
+app.get('/all-newsletter-emails', isAuthenticated, isAdmin, async(req, res) => {
+    try {
+
+        const allNewsletterEmails = await Newsletter.findAll();
+        
+        if (allNewsletterEmails.length === 0) {
+            return res.status(404).json({message: 'No emails found', emailsNotFound: true});
+        };
+
+        res.json(allNewsletterEmails);
+        
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+});
 
 
 
@@ -2359,6 +2460,8 @@ app.get('/all-banned-users', isAuthenticated, isAdmin, async(req, res) => {
 
     }
 });
+
+
 
 //ruta para que un admin manualmente pueda eliminar el ban.
 app.put('/ban/remove/:userId', isAuthenticated, isAdmin, async(req, res) => {})
