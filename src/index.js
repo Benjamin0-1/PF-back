@@ -1565,11 +1565,20 @@ app.delete('/deleteuser/id/:id', isAuthenticated, isAdmin, async(req, res) => {
 
     try {
         const userToDelete = await User.findByPk(id);
+
+
+        // admins can't delete other admins
+        if (userToDelete && userToDelete.is_admin) {
+            return res.status(400).json({error: 'Cannot delete another admin', isUserAdmin: true});
+        };
+
         if (!userToDelete) {
             return res.status(404).json({
                 message: `No user with ID: ${id} was found.`,
                 noUserIdFound: true
             });
+
+            
             
         } else {
 
@@ -1582,7 +1591,8 @@ app.delete('/deleteuser/id/:id', isAuthenticated, isAdmin, async(req, res) => {
             const userEmailToBan = userToDelete.email;
             const userUsernameToBan = userToDelete.username;
             // agregarlos a DeletedUser.
-            await DeletedUser.create({userId: userToDelete, username: userUsernameToBan, email: userEmailToBan});
+            await DeletedUser.create({ userId: userToDelete.id, username: userUsernameToBan, email: userEmailToBan });
+
 
             await userToDelete.destroy();
             
@@ -1613,8 +1623,16 @@ app.delete('/deleteuser/:username', isAuthenticated, isAdmin, async(req, res) =>
     try {
 
         const userToDelete = await User.findOne({ where: { username } });
+
+        // can't delete other admins.
+        if (userToDelete && userToDelete.is_admin) {
+            return res.status(400).json({error: 'cannot delete other admins', isUserAdmin: true})
+        };
+
         if (!userToDelete) {
             return res.status(404).json(`No se ha encontrado el usuario: ${username}`);
+
+        
             
         } else {
             
@@ -1659,6 +1677,11 @@ app.delete('/deleteuser/email/:email', isAuthenticated, isAdmin, async(req, res)
         const userToDelete = await User.findOne({
             where: {email}
         });
+
+        if (userToDelete && userToDelete.is_admin) {
+            return res.status(400).json({error: 'cannot delete another admin', isUserAdmin: true});
+        };
+
         if (userToDelete) {
 
             await Order.destroy({where: {userId: userToDelete.id}});
@@ -2323,13 +2346,14 @@ app.post('/email-all-newsletter', isAuthenticated, isAdmin, async(req, res) => {
 
         const transporter = await initializeTransporter();
 
-        await Promise.all(emailsToSend.map(async (email) => {
-            await sendMail(transporter, email, subject, body)
+        const sentEmails = await Promise.all(emailsToSend.map(async (email) => {
+            await sendMail(transporter, email, subject, body);
+            return email;
         }));
 
-        console.log(`Sending emails to newsletter users: ${emailsToSend.join(', ')}`);
+        console.log(`Sending emails to newsletter users: ${sentEmails.join(', ')}`);
 
-        res.json({successMessage: 'Emails sent successfully'});
+        res.json({ successMessage: 'Emails sent successfully', sentEmails }); // <-- todo funciona.
 
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`);
@@ -2425,12 +2449,18 @@ app.post('/ban/:userId', isAuthenticated, isAdmin, async(req, res) => {
             ban_expiration: banExpiration // Update the ban expiration time
         });
 
+        // ENVIAR EMAIL
+        const transporter = await initializeTransporter();
+        await sendMail(transporter, user.email, 'Tu cuenta ha sido baneada', 
+            `Tu cuenta ha sido baneada por ${banDurationHours} horas por no seguir las reglas`);
+
+
         return res.json(`Usuario con id: ${userId} baneado por ${banDurationHours} horas.`);
 
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`)
     }
-}); // <-- solo falta comprobar que el ban haya sido levantado.
+}); 
 
 // ruta para que un admin pueda ver todos los usuarios baneados.
 app.get('/all-banned-users', isAuthenticated, isAdmin, async(req, res) => {

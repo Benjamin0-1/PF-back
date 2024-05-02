@@ -14,3 +14,7 @@ const Newsletter = sequelize.define('Newsletter', {
 
 
 module.exports = Newsletter;
+
+
+
+
