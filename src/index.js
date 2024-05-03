@@ -154,7 +154,7 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
     let orderId;
 
     if (!reqShippingId) {
-        return res.status(400).json('Debe entregar al menos un dato de envio (ID o nickname) de su direccion de envio')
+        return res.status(400).json({message: 'Debe entregar al menos un dato de envio (ID o nickname) de su direccion de envio', missingShippingInfo: true})
     };
 
     try {
@@ -522,6 +522,12 @@ app.get('/generate-secret', isAuthenticated, isAdmin, async (req, res) => {
     try {
         
         const user = await User.findOne({where: {id: userId}});
+
+        // usuarios primero deben activar 2FA en /enable
+        if (!user.two_factor_authentication) {
+            return res.status(400).json('Primero debes activar la autenticación de dos factores.');
+        }
+
         if (user.otp_secret) {return res.status(400).json('Ya has creado tu secreto anteriormente.')};
 
         const secret = speakeasy.generateSecret();
@@ -2601,6 +2607,86 @@ app.get('/my-orders/fulfilled', isAuthenticated, isUserBanned, async(req, res) =
     }
 
 });
+
+// usuario puede filtrar en su historial de ordenes basado en totalAmount, precio asc y desc.
+app.get('/my-orders/asc', isAuthenticated, isUserBanned, async (req, res) => {
+    const userId = req.user.userId;
+    try {
+        const allUserOrderAsc = await Order.findAll({
+            where: {
+                userId
+            },
+            order: [['totalAmount', 'ASC']],
+            include: {
+                model: Product
+            }
+        });
+        res.json(allUserOrderAsc);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+app.get('/my-orders/desc', isAuthenticated, isUserBanned, async (req, res) => {
+    const userId = req.user.userId;
+    try {
+        const allUserOrderDesc = await Order.findAll({
+            where: {
+                userId
+            },
+            order: [['totalAmount', 'DESC']],
+            include: {
+                model: Product
+            }
+        });
+        res.json(allUserOrderDesc);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+
+//ROUTE TO CREATE AN ADMIN USER.
+
+// ROUTE TO GIVE AN EXISTING USER ADMIN PRIVILEGES, THEY MUST GET AN EMAIL.
+
+// Combina 3 rutas de 2FA de manera correcta, para hacerlo mucho mas facil en el front end.
+app.post('/2fa/activate-and-generate-secret', isAuthenticated, async (req, res) => {
+    const userId = req.user.userId;
+
+    try {
+        const user = await User.findOne({ where: { id: userId } });
+        
+        
+        if (user.two_factor_authentication) {
+            return res.status(400).json('Ya tienes activada la autenticación de dos factores.');
+        }
+
+        
+        const secret = speakeasy.generateSecret();
+
+     
+        await user.update({
+            otp_secret: secret.base32,
+            two_factor_authentication: true
+        });
+
+        
+        const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.base32, label: 'MyApp' });
+
+       
+        QRCode.toDataURL(otpAuthUrl, (error, imageUrl) => {
+            if (error) {
+                return res.status(500).json('Error generating QR code');
+            } else {
+                return res.json({ secret: secret.base32, qrCodeImageUrl: imageUrl });
+            }
+        });
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error.message}`);
+    }
+});
+
 
 // see all pending orders. <-- admin dashboard.
 // puede haber un boton debajo de cada order, que al ser presionado interactue automaticamente con la ruta
