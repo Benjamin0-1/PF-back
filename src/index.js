@@ -2563,9 +2563,10 @@ app.get('/my-orders/pending', isAuthenticated, isUserBanned, async(req, res) => 
                 userId: userId,
                 paymentStatus: 'pending'
             },
-            include: {
-                model: Product
-            }
+            include: [
+                {model: Product},
+                {model: Shipping}
+            ]
         });
 
         if (pendingOrders.length === 0) {
@@ -2591,9 +2592,10 @@ app.get('/my-orders/fulfilled', isAuthenticated, isUserBanned, async(req, res) =
                 userId,
                 paymentStatus: 'pending'
             },
-            include: {
-                model: Product
-            }
+            include: [
+                {model: Product},
+                {model: Shipping}
+            ]
         });
 
         if (fulfilledOrders.length === 0) {
@@ -2617,10 +2619,16 @@ app.get('/my-orders/asc', isAuthenticated, isUserBanned, async (req, res) => {
                 userId
             },
             order: [['totalAmount', 'ASC']],
-            include: {
-                model: Product
-            }
+            include: [
+                { model: Product },
+                { model: Shipping } 
+            ]
         });
+
+        if (allUserOrderAsc.length === 0) {
+            return res.status(404).json('Aun no existen ordenes')
+        };
+
         res.json(allUserOrderAsc);
     } catch (error) {
         res.status(500).json({ error: 'Internal Server Error' });
@@ -2635,10 +2643,16 @@ app.get('/my-orders/desc', isAuthenticated, isUserBanned, async (req, res) => {
                 userId
             },
             order: [['totalAmount', 'DESC']],
-            include: {
-                model: Product
-            }
+            include: [
+                { model: Product },
+                { model: Shipping }
+            ]
         });
+
+        if (allUserOrderDesc.length === 0) {
+            return res.status(404).json('Aun no tienes ordenes');
+        };
+
         res.json(allUserOrderDesc);
     } catch (error) {
         res.status(500).json({ error: 'Internal Server Error' });
