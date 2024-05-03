@@ -699,13 +699,17 @@ app.put('/users/grant-admin/:id', isAuthenticated, async(req, res) => { // debe 
         return res.status(400).json('Must provide an id');
     };
 
-    if (req.user.is_admin) {return res.json('User is already an admin')}; // <- this line never triggers.
+    
 
     try {
         const user = await User.findByPk(id);
         if (!user) {
             return res.status(404).json({ message: 'User not found.' });
         }
+
+        if (user.is_admin) {
+            return res.status(400).json({message: `user with id: ${id} is already an admin`, alreadyAdmin: true});
+        };
 
         await user.update({ is_admin: true });
 
@@ -2662,37 +2666,67 @@ app.get('/my-orders/desc', isAuthenticated, isUserBanned, async (req, res) => {
 
 //ROUTE TO CREATE AN ADMIN USER.
 
-// ROUTE TO GIVE AN EXISTING USER ADMIN PRIVILEGES, THEY MUST GET AN EMAIL.
+// ROUTE TO GIVE AN EXISTING USER ADMIN PRIVILEGES, THEY MUST GET AN EMAIL. by username
+app.put('/grant-admin-by-username', isAuthenticated, isAdmin, async(req, res) => {
+    const username = req.body.username;
+
+    if (!username) {
+        return res.status(400).json({message: 'Missing username'})
+    };
+
+    try {
+        
+        const checkUser = await User.findOne({where: {username}});
+
+        if (!checkUser) {
+            return res.status(404).json({message: `User: ${username} not found`, userNotFound: true});
+        };
+        
+
+        if (checkUser.is_admin ) {
+            return res.status(400).json({message: `User ${username} is already an admin`, isUserAdmin: true});
+        };
+
+        await checkUser.update({
+            is_admin: true
+        });
+
+        // email user who just became an admin
+        const transporter = await initializeTransporter();
+        await  sendMail(transporter, checkUser.email, 'You are now an admin', 
+    'you have are now an admin user, congrats !');
+
+    res.json(`User ${username} has been granted admin privileges`);
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+}); 
 
 // Combina 3 rutas de 2FA de manera correcta, para hacerlo mucho mas facil en el front end.
-app.post('/2fa/activate-and-generate-secret', isAuthenticated, async (req, res) => {
+app.put('/2fa/activate-and-generate-secret', isAuthenticated, isAdmin, async (req, res) => {
     const userId = req.user.userId;
 
     try {
         const user = await User.findOne({ where: { id: userId } });
         
-        
-        if (user.two_factor_authentication) {
+        if (user.two_factor_authentication && user.otp_secret) {
             return res.status(400).json('Ya tienes activada la autenticación de dos factores.');
         }
-
         
         const secret = speakeasy.generateSecret();
-
-     
-        await user.update({
-            otp_secret: secret.base32,
-            two_factor_authentication: true
-        });
-
         
         const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.base32, label: 'MyApp' });
-
-       
-        QRCode.toDataURL(otpAuthUrl, (error, imageUrl) => {
+        
+        QRCode.toDataURL(otpAuthUrl, async (error, imageUrl) => {
             if (error) {
                 return res.status(500).json('Error generating QR code');
             } else {
+                // Save the secret and update 2FA status after successful QR code generation
+                await user.update({
+                    otp_secret: secret.base32,
+                    two_factor_authentication: true
+                });
                 return res.json({ secret: secret.base32, qrCodeImageUrl: imageUrl });
             }
         });
@@ -2700,6 +2734,40 @@ app.post('/2fa/activate-and-generate-secret', isAuthenticated, async (req, res) 
         res.status(500).json(`Internal Server Error: ${error.message}`);
     }
 });
+
+/**
+ app.put('/2fa/activate-and-generate-secret', isAuthenticated, isAdmin, async (req, res) => {
+    const userId = req.user.userId;
+
+    try {
+        const user = await User.findOne({ where: { id: userId } });
+        
+        if (user.otp_secret) {
+            return res.status(400).json('Ya tienes activada la autenticación de dos factores.');
+        }
+        
+        const secret = speakeasy.generateSecret();
+        const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.base32, label: 'MyApp' });
+
+        // Return QR code URL to the client
+        const imageUrl = await new Promise((resolve, reject) => {
+            QRCode.toDataURL(otpAuthUrl, (error, imageUrl) => {
+                if (error) {
+                    reject('Error generating QR code');
+                } else {
+                    resolve(imageUrl);
+                }
+            });
+        });
+
+        // Send QR code URL to the client
+        res.json({ secret: secret.base32, qrCodeImageUrl: imageUrl });
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error.message}`);
+    }
+});
+
+ */
 
 
 // see all pending orders. <-- admin dashboard.
