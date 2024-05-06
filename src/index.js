@@ -413,7 +413,7 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
             line_items: items,
             mode: 'payment',
             success_url: 'http://localhost:3000/paymenthistory', 
-            cancel_url: 'https://www.example.com/cancel', 
+            cancel_url: 'http://localhost:3000/ordercancelled', 
         });
 
         await PaymentHistory.bulkCreate(paymentHistoryData);
