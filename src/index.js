@@ -12,6 +12,7 @@ const bcrypt = require('bcryptjs'); // <-- HEROKU.
 const nodemailer = require('nodemailer');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
+const cors = require('cors');
 
 const User = require('./models/User');
 const Product = require('./models/Product');
@@ -34,6 +35,7 @@ const Shipping = require('./models/Shipping');
 const { google } = require('googleapis');
 
 app.use(express.json());
+app.use(cors());
 
 
 // configuracion de nodeMailer
@@ -84,9 +86,9 @@ function generateRandomPassword() {
 async function generateUniqueUsername(profile) {
     try {
         const allCurrentUsernames = await User.findAll({ attributes: ['username'] });
-        const firstName = profile.given_name; // corrected from 'givenName' to 'given_name'
-        const lastName = profile.family_name; // corrected from 'familyName' to 'family_name'
-        let baseUsername = firstName.toLowerCase() + lastName.toLowerCase();
+        const firstName = profile.givenName || 'first_name';
+        const lastName = profile.familyName || 'last_name';
+        let baseUsername = (firstName + lastName).toLowerCase();
         let count = 1;
         let uniqueUsername = baseUsername;
         while (allCurrentUsernames.includes(uniqueUsername)) {
@@ -98,7 +100,8 @@ async function generateUniqueUsername(profile) {
         console.error('Error generating unique username:', error);
         throw error;
     }
-};
+}
+
 
 
 function generateRandomString(length) {
@@ -156,31 +159,37 @@ function generateRefreshToken(user) {
 
 
 // create google user 
+const saltRounds = 10;
+
 async function processGoogleUser(userInfo, res) {
     console.log(`User info: ${JSON.stringify(userInfo)}`);
 
-    if (!userInfo.id || !userInfo.email || !userInfo.given_name || !userInfo.family_name) {
+    if (!userInfo.id || !userInfo.email || !userInfo.given_name) {
         console.error('Error: Essential user information is missing');
         return res.status(400).json({ error: 'Missing required user data' });
     }
 
     try {
-        let user = await User.findOne({where: {email: userInfo.email}});
+        let user = await User.findOne({ where: { email: userInfo.email } });
         if (user) {
             console.log(`User with email: ${userInfo.email} already exists`);
             return res.status(409).json({ message: `User with email: ${userInfo.email} already exists`, emailAlreadyInUse: true });
         };
 
-        const username = await generateUniqueUsername({ given_name: userInfo.given_name, family_name: userInfo.family_name });
+        const username = await generateUniqueUsername({ givenName: userInfo.given_name, familyName: userInfo.family_name || '' });
 
+        // Check if userInfo.given_name is defined before hashing the default password
+        const defaultPassword = userInfo.given_name ? userInfo.given_name.toLowerCase() : 'defaultpassword';
+        const hashedPassword = await bcrypt.hash(defaultPassword, saltRounds);
 
         const transaction = await sequelize.transaction();
         try {
             user = await User.create({
                 email: userInfo.email,
                 first_name: userInfo.given_name,
-                last_name: userInfo.family_name,
-                username
+                last_name: userInfo.family_name || '',
+                username,
+                password: hashedPassword
             }, { transaction });
 
             await transaction.commit();
@@ -200,6 +209,8 @@ async function processGoogleUser(userInfo, res) {
         return res.status(500).json({ error: 'Internal Server Error', details: error });
     }
 }
+
+
 
 
 
