@@ -172,13 +172,14 @@ async function processGoogleUser(userInfo, res) {
     try {
         let user = await User.findOne({ where: { email: userInfo.email } });
         if (user) {
-            console.log(`User with email: ${userInfo.email} already exists`);
-            return res.status(409).json({ message: `User with email: ${userInfo.email} already exists`, emailAlreadyInUse: true });
+            console.log(`User with email: ${userInfo.email} already exists. Logging in.`);
+            const accessToken = generateAccessToken(user);
+            const refreshToken = generateRefreshToken(user);
+            return res.json({ accessToken, refreshToken, message: 'Login successful' });
         };
 
+        // If the user does not exist, create a new one
         const username = await generateUniqueUsername({ givenName: userInfo.given_name, familyName: userInfo.family_name || '' });
-
-        // Check if userInfo.given_name is defined before hashing the default password
         const defaultPassword = userInfo.given_name ? userInfo.given_name.toLowerCase() : 'defaultpassword';
         const hashedPassword = await bcrypt.hash(defaultPassword, saltRounds);
 
@@ -198,7 +199,7 @@ async function processGoogleUser(userInfo, res) {
             const accessToken = generateAccessToken(user);
             const refreshToken = generateRefreshToken(user);
 
-            return res.json({ accessToken, refreshToken });
+            return res.json({ accessToken, refreshToken, message: 'New user created and logged in' });
         } catch (error) {
             await transaction.rollback();
             console.error('Transaction error:', error);
@@ -236,7 +237,6 @@ async function processGoogleUser(userInfo, res) {
                 return res.status(404).json({ error: 'No user data received' });
             }
 
-            // Pass `res` and `response.data` to the user processing function
             await processGoogleUser(response.data, res);
         });
     } catch (error) {
@@ -846,7 +846,7 @@ app.post('/reset-password-request', async (req, res) => { // <-- se ha quitado e
         await user.update({ password_reset_token: resetToken, password_reset_token_expires: tokenExpiration });
 
         const transporter = await initializeTransporter();
-        const subject = 'password reset'
+        const subject = `Password reset for:  ${user.email}`
 
         await sendMail(transporter, email, subject, resetToken);
 
@@ -3145,8 +3145,78 @@ app.get('/secret/get-secret', isAuthenticated, async(req, res) => {
     }
 });
 
-// ruta para que usuarios puedan cambiar su username.
+// ruta para que usuarios puedan cambiar su profile info.
+app.put('/profile/update-profile-info', isAuthenticated, isUserBanned, async(req, res) => { // <-- FALTA PROBAR ! 
+    const userId = req.user.userId;
 
+    const {new_first_name, new_last_name, new_username, confirmNewUsername} = req.body;
+
+    if (!new_first_name && !new_last_name && !new_username && !confirmNewUsername) {
+        return res.status(400).json({message: 'must provide at least 1 value to update', missingFields: true})
+    };
+
+    if (new_username !== confirmNewUsername) {
+        return res.status(400).json({message: 'Usernames must match', usernamesMustMatch: true})
+    };
+
+    try {
+        
+        const checkUsernameInUse = await User.findOne({where: {username: confirmNewUsername}});
+        if (checkUsernameInUse) {
+            return res.status(400).json({message: `Usernames already in use: ${confirmNewUsername}`, usernameAlreadyExists: true});
+        };
+
+        let updatedUser = await User.findByPk(userId);
+
+         updatedUser = await User.update({
+            first_name: new_first_name || first_name,
+            last_name: new_last_name || last_name,
+            username: new_username || username
+            
+         });
+
+         res.status(201).json({successMessage: 'Profile info updated successfully', newProfileInfo: updatedUser});
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+
+});
+
+// ruta para que un usuario LOGGEADO, pueda cambiar su password sin tener que recibir un email.
+app.put('/user/update-user-password', isAuthenticated, isUserBanned, async(req, res) => { // <-- FALTA COMPROBAR !
+    const userId = req.user.userId;
+    
+    const {password, newPassword, confirmNewPassword} = req.body;
+    
+    if (!password || !newPassword || !confirmNewPassword) {
+        return res.status(400).json({message: 'missing required fields', missingInfo: true})
+    };
+
+    if (newPassword.length < 8 || confirmNewPassword.length < 8) {
+        return res.status(400).json('Passwords must be at least 8 characters in length')
+    }
+
+    try {
+        const userOldPassword = await User.findByPk(userId);
+
+        // verify old password here
+        const verifyOldPassword = await bcrypt.compare(password, userOldPassword.password);
+        if (!verifyOldPassword) {
+            return res.status(400).json({error: 'Passwords do not match', invalidOldPassword: true});
+        };
+        
+        if (newPassword !== confirmNewPassword) {
+            return res.status(400).json({message: 'passwords do not match', passwordsDontMatch: true})
+        };
+
+        const updatedPassword = await User.update({password: newPassword});
+        res.status(201).json({successMessage: `Password updated successfully: ${newPassword}`});
+
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`)
+    }
+});
 
 //ruta para que un admin manualmente pueda eliminar el ban.
 app.put('/ban/remove/:userId', isAuthenticated, isAdmin, async(req, res) => { // <-- FALTA PROBAR.
