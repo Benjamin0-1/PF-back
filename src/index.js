@@ -436,6 +436,31 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
     }
 });
 
+// Stripe WEBHOOK
+app.post('/webhook', express.raw({ type: 'application/json' }), (request, response) => {
+    const sig = request.headers['stripe-signature'];
+    const endpointSecret = "whsec_yourWebhookSecret";  // Replace with your actual webhook secret
+
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
+    } catch (err) {
+        return response.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === 'checkout.session.completed') {
+        
+        // insert into paymentHistory Order and send email confirmation.
+
+        console.log('Payment was successful:', session);
+    }
+
+    response.status(200).send();  // Acknowledge receipt of the event
+});
+
+app.listen(4242, () => console.log('Running on port 4242')); // <-- uses its own listening.
+
+
 
 // debugging route.                         <-----
 app.get('/allorders',isAuthenticated, isAdmin, async(req, res) => {
@@ -1160,6 +1185,12 @@ app.post('/signup', async(req, res) => {
         if (!email || !email.match(emailRegex)) {
         return res.status(400).json(`Formato de email incorrecto`);
         };
+
+    // VERIFICAR ESTE CHECK !   
+    const checkEmailExists = await User.findOne({where: {email}});
+    if (checkEmailExists) {
+        return res.status(400).json({message: `Email ${email} already exists`, emailAlreadyInUse: true})
+    };
 
 
     try {
@@ -2767,7 +2798,7 @@ app.get('/my-orders/fulfilled', isAuthenticated, isUserBanned, async(req, res) =
         const fulfilledOrders = await Order.findAll({
             where: {
                 userId,
-                paymentStatus: 'pending'
+                paymentStatus: 'fulfilled'
             },
             include: [
                 {model: Product},
@@ -3146,77 +3177,94 @@ app.get('/secret/get-secret', isAuthenticated, async(req, res) => {
 });
 
 // ruta para que usuarios puedan cambiar su profile info.
-app.put('/profile/update-profile-info', isAuthenticated, isUserBanned, async(req, res) => { // <-- FALTA PROBAR ! 
+app.put('/profile/update-profile-info', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
-
-    const {new_first_name, new_last_name, new_username, confirmNewUsername} = req.body;
+    const { new_first_name, new_last_name, new_username, confirmNewUsername } = req.body;
 
     if (!new_first_name && !new_last_name && !new_username && !confirmNewUsername) {
-        return res.status(400).json({message: 'must provide at least 1 value to update', missingFields: true})
+        return res.status(400).json({ message: 'must provide at least 1 value to update', missingFields: true });
     };
 
     if (new_username !== confirmNewUsername) {
-        return res.status(400).json({message: 'Usernames must match', usernamesMustMatch: true})
-    };
-
-    try {
-        
-        const checkUsernameInUse = await User.findOne({where: {username: confirmNewUsername}});
-        if (checkUsernameInUse) {
-            return res.status(400).json({message: `Usernames already in use: ${confirmNewUsername}`, usernameAlreadyExists: true});
-        };
-
-        let updatedUser = await User.findByPk(userId);
-
-         updatedUser = await User.update({
-            first_name: new_first_name || first_name,
-            last_name: new_last_name || last_name,
-            username: new_username || username
-            
-         });
-
-         res.status(201).json({successMessage: 'Profile info updated successfully', newProfileInfo: updatedUser});
-
-    } catch (error) {
-        res.status(500).json(`Internal Server Error: ${error}`)
+        return res.status(400).json({ message: 'Usernames must match', usernamesMustMatch: true });
     }
 
+    try {
+
+        /*
+        // check if users are updating their current name and lastname to the ones that are already set.
+        const checkFirstName = await User.findOne({where: {userId}, attributes: ['first_name']});
+        const checkLastName = await User.findOne({where: {userId}, attributes: ['last_name']});
+        if (checkFirstName === new_first_name || checkLastName === new_last_name) {
+            return res.status(400).json({message: 'You did not provide new values for first name or last name fields', noNewValues: true})
+        };
+        */
+
+        const updatedFields = {};
+        
+        if (new_first_name) updatedFields.first_name = new_first_name;
+        if (new_last_name) updatedFields.last_name = new_last_name;
+        if (new_username) updatedFields.username = new_username;
+
+        // se encarga de arreglar undefined where clause, haciendo que el usuario solamente actualize lo que desee.
+        if (new_username && confirmNewUsername) {
+            const checkUsernameInUse = await User.findOne({ where: { username: confirmNewUsername } });
+            if (checkUsernameInUse) {
+                return res.status(400).json({ message: `Username already in use: ${confirmNewUsername}`, usernameAlreadyExists: true });
+            }
+        }
+
+        const [numAffectedRows, updatedUsers] = await User.update(updatedFields, { where: { id: userId }, returning: true });
+
+        if (numAffectedRows === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const updatedUser = updatedUsers[0];
+
+        res.status(201).json({ successMessage: 'Profile info updated successfully', updatedUser });
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
 });
+
+
 
 // ruta para que un usuario LOGGEADO, pueda cambiar su password sin tener que recibir un email.
-app.put('/user/update-user-password', isAuthenticated, isUserBanned, async(req, res) => { // <-- FALTA COMPROBAR !
+app.put('/user/update-user-password', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
-    
-    const {password, newPassword, confirmNewPassword} = req.body;
-    
+    const { password, newPassword, confirmNewPassword } = req.body;
+
     if (!password || !newPassword || !confirmNewPassword) {
-        return res.status(400).json({message: 'missing required fields', missingInfo: true})
-    };
+        return res.status(400).json({ message: 'Missing required fields', missingInfo: true });
+    }
 
     if (newPassword.length < 8 || confirmNewPassword.length < 8) {
-        return res.status(400).json('Passwords must be at least 8 characters in length')
+        return res.status(400).json({ message: 'Passwords must be at least 8 characters in length', passwordTooShort: true });
     }
 
     try {
-        const userOldPassword = await User.findByPk(userId);
+        const user = await User.findByPk(userId);
 
-        // verify old password here
-        const verifyOldPassword = await bcrypt.compare(password, userOldPassword.password);
-        if (!verifyOldPassword) {
-            return res.status(400).json({error: 'Passwords do not match', invalidOldPassword: true});
-        };
-        
-        if (newPassword !== confirmNewPassword) {
-            return res.status(400).json({message: 'passwords do not match', passwordsDontMatch: true})
-        };
+        // Verify old password
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!passwordMatch) {
+            return res.status(400).json({ message: 'Invalid old password', invalidOldPassword: true });
+        }
 
-        const updatedPassword = await User.update({password: newPassword});
-        res.status(201).json({successMessage: `Password updated successfully: ${newPassword}`});
+        // Hash the new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
 
+        // Update the user's password in the database
+        await User.update({ password: hashedPassword }, { where: { id: userId } });
+
+        res.status(200).json({ message: 'Password updated successfully' });
     } catch (error) {
-        res.status(500).json(`Internal Server Error: ${error}`)
+        console.error('Error updating password:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
     }
 });
+
 
 //ruta para que un admin manualmente pueda eliminar el ban.
 app.put('/ban/remove/:userId', isAuthenticated, isAdmin, async(req, res) => { // <-- FALTA PROBAR.
