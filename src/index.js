@@ -36,6 +36,10 @@ const { google } = require('googleapis');
 
 app.use(express.json());
 app.use(cors());
+// app.use(cors({
+//    origin: 'http://localhost:3000',
+//    credentials: true
+//  }));
 
 
 // configuracion de nodeMailer
@@ -175,7 +179,8 @@ async function processGoogleUser(userInfo, res) {
             console.log(`User with email: ${userInfo.email} already exists. Logging in.`);
             const accessToken = generateAccessToken(user);
             const refreshToken = generateRefreshToken(user);
-            return res.json({ accessToken, refreshToken, message: 'Login successful' });
+            return res.redirect(`http://localhost:3000/login#accessToken=${accessToken}&refreshToken=${refreshToken}`);
+        //    return res.json({ accessToken, refreshToken, message: 'Login successful' });
         };
 
         // If the user does not exist, create a new one
@@ -199,7 +204,13 @@ async function processGoogleUser(userInfo, res) {
             const accessToken = generateAccessToken(user);
             const refreshToken = generateRefreshToken(user);
 
-            return res.json({ accessToken, refreshToken, message: 'New user created and logged in' });
+            res.cookie('accessToken', accessToken, { httpOnly: false, secure: false, sameSite: 'strict' });
+            res.cookie('refreshToken', refreshToken, { httpOnly: false, secure: false, sameSite: 'strict' });
+        
+
+            return res.redirect(`http://localhost:3000/login#accessToken=${accessToken}&refreshToken=${refreshToken}`);
+
+          //  return res.json({ accessToken, refreshToken, message: 'New user created and logged in' });
         } catch (error) {
             await transaction.rollback();
             console.error('Transaction error:', error);
@@ -209,7 +220,7 @@ async function processGoogleUser(userInfo, res) {
         console.error('Error processing Google user:', error);
         return res.status(500).json({ error: 'Internal Server Error', details: error });
     }
-}
+};
 
 
 
@@ -806,24 +817,27 @@ app.put('/2fa/activate', isAuthenticated, isAdmin, async(req, res) => {
 });
 
 
+
 function isAuthenticated(req, res, next) {
-    const token = req.headers.authorization && req.headers.authorization.split(' ')[1]; // extrae el token de los headers.
+    // Attempt to retrieve the token from the Authorization header or cookies
+    let token = req.headers.authorization ? req.headers.authorization.split(" ")[1] : null;
+    token = token || req.cookies.accessToken;
+
     if (!token) {
-        return res.status(401).json({ message: 'No token provided.' });
+        return res.status(401).json({ message: "Authentication token is missing" });
     }
 
-  //  if (isTokenBanned(token)) {
-  //      return res.status(403).json({ message: 'Token has been banned' });
-  //  }
-
-    jwt.verify(token, 'access-secret', (error, decoded) => {
-        if (error) {
-            return res.status(401).json({ message: 'Invalid access token.' });
-        }
+    try {
+        // Verify the token
+        const decoded = jwt.verify(token, 'access-secret');
         req.user = decoded;
         next();
-    });
-};
+    } catch (error) {
+        console.error('Failed to authenticate token:', error.message);
+        return res.status(401).json({ message: "Token is not valid" });
+    }
+}
+
 
 // Middleware to check for admin privileges
 async function isAdmin(req, res, next) {
