@@ -33,14 +33,17 @@ const PaymentHistory = require('./models/PaymentHistory');
 const Shipping = require('./models/Shipping');
 
 const { google } = require('googleapis');
+const Cart = require('./models/Cart');
+const ProductCart = require('./models/ProductCart');
 
 app.use(express.json());
 app.use(cors());
-// app.use(cors({
-//    origin: 'http://localhost:3000',
-//    credentials: true
-//  }));
 
+/*
+ app.use(cors({
+    origin: 'http://localhost:3000'
+  }));
+*/
 
 // configuracion de nodeMailer
 const nodemailerOptions = {
@@ -95,8 +98,9 @@ async function generateUniqueUsername(profile) {
         let baseUsername = (firstName + lastName).toLowerCase();
         let count = 1;
         let uniqueUsername = baseUsername;
-        while (allCurrentUsernames.includes(uniqueUsername)) {
-            uniqueUsername = baseUsername + generateRandomString(getRandomInt(1, 50));
+        while (allCurrentUsernames.some(user => user.username === uniqueUsername)) {
+            const randomSuffix = generateRandomString(10); // Generate a random string of length 6
+            uniqueUsername = baseUsername + randomSuffix;
             count++;
         }
         return uniqueUsername;
@@ -105,6 +109,7 @@ async function generateUniqueUsername(profile) {
         throw error;
     }
 }
+
 
 
 
@@ -123,7 +128,7 @@ function getRandomInt(min, max) {
 }
 
 function generateAccessToken(user) {
-    return jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '50m' });
+    return jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '200m' });
 }
 
 function generateRefreshToken(user) {
@@ -154,7 +159,7 @@ app.get('/auth/google', (req, res) => {
 
 // token generations
 function generateAccessToken(user) {
-    return jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '50m' });
+    return jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '200m' });
 };
 
 function generateRefreshToken(user) {
@@ -434,8 +439,8 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
         if (session.success) {
             const transporter = await initializeTransporter();
             await sendMail(transporter, userEmail.email, 'Checkout successful', 
-            `You have bought the following products: ${paymentHistoryData.product[0].value} and your total amount is:  ${newOrder.totalAmount}`);
-        }; //
+            ` your total amount is:  ${newOrder.totalAmount}`);
+        }; //           <-------- NEED TO SEND THE EMAIL ANYWAY !
 
         res.json({ id: session.id });
     } catch (error) {
@@ -447,6 +452,7 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
     }
 });
 
+/*
 // Stripe WEBHOOK
 app.post('/webhook', express.raw({ type: 'application/json' }), (request, response) => {
     const sig = request.headers['stripe-signature'];
@@ -471,7 +477,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (request, respon
 
 app.listen(4242, () => console.log('Running on port 4242')); // <-- uses its own listening.
 
-
+*/
 
 // debugging route.                         <-----
 app.get('/allorders',isAuthenticated, isAdmin, async(req, res) => {
@@ -965,6 +971,7 @@ app.put('/users/grant-admin/:id', isAuthenticated, async(req, res) => { // debe 
 // make a user admin by username.
 
 
+// NEW ADMIN COMPONENT INSIDE ALLUSERS, THIS WILL BE A SEARCH BAR.
 // ruta para que un admin pueda ver todos los datos de un usuario especifico
 app.get('/users/info/details/:username', isAuthenticated, isAdmin, async(req, res) => {
     const username = req.params.username;
@@ -1059,7 +1066,7 @@ app.post('/access-token', async (req, res) => {
             let accessToken;
             // Generar nuevo token hasta entregar uno no baneado.
             do {
-                accessToken = jwt.sign({ userId: decoded.userId, username: decoded.username }, 'access-secret', { expiresIn: '50m' });
+                accessToken = jwt.sign({ userId: decoded.userId, username: decoded.username }, 'access-secret', { expiresIn: '200m' });
             } while (bannedTokens.some((token) => token.token === accessToken));            
 
             // luego de entregarlo, banearlo
@@ -1092,7 +1099,7 @@ app.post('/access-token', async (req, res) => {
 
             console.log('Decoded:', decoded); // Debugging
 
-            const accessToken = jwt.sign({ userId: decoded.userId, username: decoded.username }, 'access-secret', { expiresIn: '50m' });
+            const accessToken = jwt.sign({ userId: decoded.userId, username: decoded.username }, 'access-secret', { expiresIn: '200m' });
 
             console.log('New Access Token:', accessToken); // Debugging 
 
@@ -1113,7 +1120,7 @@ app.post('/access-token', async (req, res) => {
 // Helper function to generate a new access token recursively
 // esta funcion NO esta en uso.
 async function generateNewAccessToken(res, decoded) {
-    const accessToken = jwt.sign({ userId: decoded.userId, username: decoded.username }, 'access-secret', { expiresIn: '50m' });
+    const accessToken = jwt.sign({ userId: decoded.userId, username: decoded.username }, 'access-secret', { expiresIn: '200m' });
 
     try {
         // Store the new access token
@@ -1175,7 +1182,7 @@ app.post('/login', async (req, res) => { // FALTA AGREGAR: SI USUARIO ES ADMIN Y
         };
 
         // Generate new tokens
-        const accessToken = jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '50m' }); 
+        const accessToken = jwt.sign({ userId: user.id, username: user.username }, 'access-secret', { expiresIn: '200m' }); 
         const refreshToken = jwt.sign({ userId: user.id, username: user.username }, 'refresh-secret', { expiresIn: '15d' });
 
         res.json({ message: 'Login successful', accessToken, refreshToken });
@@ -1269,7 +1276,10 @@ app.get('/profile-info', isAuthenticated, isUserBanned, async(req, res) => {
 // se verifica que el usuario haya comprado el producto antes de poder escribir una review.
 app.post('/review', isAuthenticated, isUserBanned, async (req, res) => {
     const userId = req.user.userId;
-    const { productId, review, rating } = req.body; // <-- AGREGAR RATING.
+    const productId = req.body.productId;
+    const review = req.body.review;
+    const rating = req.body.rating;
+   // const { productId, review, rating } = req.body; 
 
     console.log(`User id: ${userId}`); // array de palabras que no sigan las guias
 
@@ -1278,19 +1288,19 @@ app.post('/review', isAuthenticated, isUserBanned, async (req, res) => {
     }
 
     if (!rating) {
-        return res.status(400).json('Falta incluir rating.')
+        return res.status(400).json({missingRating: 'Falta incluir rating.'})
     };
 
     // el rating debe ser entre 1 y 5, tambien se puede tener 3.2, 4.5, etc.
     if (!/^(\d+(\.\d+)?)$/.test(rating) || rating < 1 || rating > 5) {
-        return res.status(400).json('El rating debe ser un número entre 1 y 5.');
+        return res.status(400).json({invalidRating: 'El rating debe ser un número entre 1 y 5.'});
     }
 
     if (!productId) {
-        return res.status(400).json('Debe incluir un id de producto');
+        return res.status(400).json({missingProductId: 'Debe incluir un id de producto'});
     }
     if (!/^\d+$/.test(productId)) {
-        return res.status(400).json('El id de producto debe ser un número.');
+        return res.status(400).json({invalidProductIdFormat: 'El id de producto debe ser un número.'});
     }
 
     try {
@@ -1298,7 +1308,7 @@ app.post('/review', isAuthenticated, isUserBanned, async (req, res) => {
             where: { productId, userId }
         });
         if (existingReview) {
-            return res.status(400).json('Ya has escrito una review para este producto.');
+            return res.status(400).json({existingReview: 'Ya has escrito una review para este producto.'});
         }
 
         const product = await Product.findByPk(productId);
@@ -1314,10 +1324,10 @@ app.post('/review', isAuthenticated, isUserBanned, async (req, res) => {
             }
         });
 
-        if (!purchaseRecord) {return res.status(400).json(`Debes comprar el producto con id: ${productId} antes de poder dejar una review.`)};
+        if (!purchaseRecord) {return res.status(400).json({productNotOwned: `Debes comprar el producto con id: ${productId} antes de poder dejar una review.`})};
 
         const createdReview = await Review.create({ productId, userId, review, rating });
-        res.status(201).json({ message: 'Review creada con éxito', review: createdReview });
+        res.status(201).json({ successMessage: 'Review creada con éxito', review: createdReview });
     } catch (error) {
         res.status(500).json(`Error interno del servidor: ${error}`);
     }
@@ -1328,13 +1338,13 @@ app.delete('/review/:reviewId', isAuthenticated, isUserBanned, async (req, res) 
     const userId = req.user.userId;
     const reviewId = req.params.reviewId; // <-- deja la reviewId y esa review sera eliminada (si es que tu usuario la ha escrito).
 
-    if (reviewId) {return res.status(400).json('Debe incluir reviewId')}
+    if (!reviewId) {return res.status(400).json({missingReview: 'Debe incluir reviewId'})}
 
     try {
         const reviewToDelete = await Review.findOne({ where: { id: reviewId, userId } });
 
         if (!reviewToDelete) {
-            return res.status(404).json('Review not found or you are not authorized to delete it');
+            return res.status(404).json({reviewNotFound: 'Review not found or you are not authorized to delete it'});
         }
 
         await reviewToDelete.destroy();
@@ -1363,9 +1373,13 @@ app.get('/user/reviews', isAuthenticated, isUserBanned, async (req, res) => {
                 }
             ]
         });
-       // console.log('Products with Reviews:', productsWithReviews); 
+       // console.log('Products with Reviews:', productsWithReviews);
+       
+       if (productsWithReviews.length === 0) {
+        return res.status(404).json({noProductsFound: 'You have not written any reviews yet'})
+       }
 
-        res.json({ resultado: productsWithReviews.length, productsWithReviews });
+        res.json(productsWithReviews);
     } catch (error) {
         console.error('Error fetching products with reviews:', error); 
         res.status(500).json(`Internal Server Error: ${error}`);
@@ -1494,7 +1508,7 @@ app.post('/product', isAuthenticated, isAdmin, async (req, res) => {
         const checkProductExists = await Product.findOne({
             where: {product: product}
         });
-        if (checkProductExists) {return res.status(400).json(`El producto con nombre: ${product} ya existe`)};
+        if (checkProductExists) {return res.status(400).json({productAlreadyExists: `El producto con nombre: ${product} ya existe`})};
 
         // Create the product with the provided attributes and userId
         const createdProduct = await Product.create({
@@ -1640,14 +1654,15 @@ app.get('/product-detail/:id', async (req, res) => {
 app.post('/products/report/id', isAuthenticated, isUserBanned, async(req, res) => {
     const userId = req.user.userId;
     const productId = req.body.productId;
-    if (!productId) {return res.status(400).json('Debe uncluir el id del producto')};
+    const reason = req.body.reason;
+    if (!productId) {return res.status(400).json({missingFields: 'Debe uncluir el id del producto'})};
 
     console.log(`User id: ${userId}`);
     
     try {
         // first check if product exists.
         const existingProduct = await Product.findByPk(productId);
-        if (!existingProduct) {return res.status(404).json(`No existe el producto con id: ${productId}`)};
+        if (!existingProduct) {return res.status(404).json({productNotFound: `No existe el producto con id: ${productId}`})};
 
         const existingReport = await ReportedProduct.findOne({
             where: {
@@ -1655,14 +1670,15 @@ app.post('/products/report/id', isAuthenticated, isUserBanned, async(req, res) =
                 userId: userId
             }
         });
-        if (existingReport) {return res.status(400).json(`Ya has reportado este producto. con id: ${productId}`)};
+        if (existingReport) {return res.status(400).json({productAlreadyReported: `You have already reported the existing product: ${productId}`})};
 
         const newReport = await ReportedProduct.create({
-            productId, 
+            productId,
+            reason, 
             userId
         });
 
-        res.status(201).json(`Producto con id: ${productId} reportado con exito`);
+        res.status(201).json({successMessage: `Producto con id: ${productId} reportado con exito`});
 
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`);
@@ -1766,7 +1782,33 @@ app.get('/searchproduct/:productname', async(req, res) => {
     } catch (error) {
         res.status(500).json(`Internal Server Error: ${error}`);
     }
+});
+
+/*
+
+app.get('/searchproduct/:productname', async (req, res) => { // <-- SEARCH BAR ! 
+    const productname = req.params.productname;
+    if (!productname) { return res.status(400).json('Missing product name') };
+    if (productname.length > 50) { return res.status(400).json('Product name is too long') };
+
+    try {
+        const products = await Product.findAll({
+            where: { product: { [Op.iLike]: '%' + productname + '%' } }, // Busca coincidencias en cualquier parte del nombre
+            include: [ Category ] // Include associated categories
+        });
+
+        if (products && products.length > 0) {
+            res.json(products);
+
+        } else {
+            res.status(404).json(`No products with name: ${productname}`);
+        };
+    } catch (error) {
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
 })
+
+*/
 
 app.get('/allusers', isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -1813,6 +1855,7 @@ app.delete('/deleteuser/id/:id', isAuthenticated, isAdmin, async(req, res) => {
 
             await Order.destroy({where: {userId: userToDelete.id}});
             await PaymentHistory.destroy({where: {userId: userToDelete.id}});
+            // if CART TABLE, THEN ALSO DELETE ITS ASSOCIATIONS HERE !
             // estas 2 deletions arreglaron el error a la hora de eliminar un usuario con records/
             // en las tablas PaymentHistory y Order.
 
@@ -3304,6 +3347,185 @@ app.put('/ban/remove/:userId', isAuthenticated, isAdmin, async(req, res) => { //
 app.get('/test/ban', isAuthenticated, isUserBanned, (req, res) => {
     res.send('YOU ARE NOT BANNED ')
 });
+
+// admin route to see all the carts.
+app.get('/carts/view-all-carts', isAuthenticated, isAdmin, async(req, res) => {    
+    try {
+        const allCarts = await Cart.findAll({
+            include: [
+                { model: Product, as: 'Products' }, 
+                { model: User } //  <------ WORKS !
+            ]
+        });
+
+        res.json(allCarts); // This now includes each cart with its associated products and linked user info
+
+    } catch (error) {
+        console.error('Error fetching carts:', error);
+        res.status(500).json({ message: `Internal Server Error: ${error}` });
+    }
+});
+
+
+
+// ALL CART ROUTES. (dont forget to then update user deletion routes and test it all many TIMES). also check product deletions.
+app.get('/user/viewcart', isAuthenticated, isUserBanned, async(req, res) => { // <-- WORKS
+    const userId = req.user.userId;
+
+    try {
+        // Fetch the user's cart and include the associated products
+        const userCart = await Cart.findOne({
+            where: { userId: userId },
+            include: [{
+                model: Product,
+                through: {
+                    attributes: ['quantity'] // This tells Sequelize to include the 'quantity' field from the join table
+                }
+            }]
+        });
+
+
+        if (!userCart) {
+            return res.status(404).json({ noCartFound: 'No cart found for this user.' });
+        }
+
+        
+
+        // Return the found cart with its products
+        res.json(userCart);
+
+    } catch (error) {
+        console.error('Error fetching user cart:', error);
+        res.status(500).json({ message: `Internal Server Error: ${error}` });
+    }
+});
+
+
+
+// add products to the cart
+app.post('/user/add-to-cart', isAuthenticated, isUserBanned, async(req, res) => { // <-- WORKS
+    const userId = req.user.userId;
+    const { productId, quantity } = req.body;
+
+    // if (!productId) {};
+
+    try {
+        let cart = await Cart.findOne({ where: { userId } });
+
+        if (!cart) {
+            cart = await Cart.create({ userId });
+        }
+
+        const [productCart, created] = await ProductCart.findOrCreate({
+            where: { cartId: cart.id, productId: productId },
+            defaults: { quantity }
+        });
+
+        if (!created) {
+            productCart.quantity += quantity;
+            await productCart.save();
+        }
+
+        res.status(201).json({ message: 'Product added to cart', productCart });
+    } catch (error) {
+        console.error('Error adding to cart:', error);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+
+
+
+
+//delete from cart
+app.delete('/user/delete-from-cart', isAuthenticated, isUserBanned, async(req, res) => { // <-- WORKS
+    const userId = req.user.userId;
+    const { productId } = req.body;
+
+    if (!productId) {
+        return res.status(400).json({missingProductId: 'Missing product Id'})
+    }
+
+    try {
+        const cart = await Cart.findOne({ where: { userId } });
+        if (!cart) {
+            return res.status(404).json({ message: 'Cart not found.' });
+        }
+
+        const result = await ProductCart.destroy({
+            where: {
+                cartId: cart.id,
+                productId
+            }
+        });
+
+        if (result === 0) {
+            return res.status(404).json({ message: 'Product not found in cart.' });
+        }
+
+        res.json({ message: 'Product removed from cart.' });
+    } catch (error) {
+        console.error('Error removing from cart:', error);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+
+// route to delete everything from the cart. Here a user can click a 'clear cart' button and it will clear everything.
+app.delete('/user/clear-cart', isAuthenticated, isUserBanned, async(req, res) => { // <-- WORKS
+    const userId = req.user.userId;
+
+    try {
+        const cart = await Cart.findOne({ where: { userId } });
+        if (!cart) {
+            return res.status(404).json({ message: 'Cart not found.' });
+        }
+
+        await ProductCart.destroy({ where: { cartId: cart.id } });
+        res.json({ message: 'Cart cleared.' });
+    } catch (error) {
+        console.error('Error clearing cart:', error);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
+// route to update the quantity of the cart
+app.patch('/user/update-cart', isAuthenticated, isUserBanned, async(req, res) => { // <-- WORKS
+    const userId = req.user.userId;
+    const { productId, quantity } = req.body;
+
+    if (!productId) {
+        return res.status(400).json({missingProductId: 'Missing product id'});
+    };
+
+    if (!quantity) {
+        return res.status(400).json({missingQuantity: 'Missing quantity'})
+    }
+
+    try {
+        const cart = await Cart.findOne({ where: { userId } });
+        if (!cart) {
+            return res.status(404).json({ message: 'Cart not found.' });
+        }
+
+        const productCart = await ProductCart.findOne({
+            where: { cartId: cart.id, productId }
+        });
+
+        if (!productCart) {
+            return res.status(404).json({ message: 'Product not found in cart.' });
+        }
+
+        productCart.quantity = quantity;
+        await productCart.save();
+
+        res.json({ message: 'Cart updated.', productCart });
+    } catch (error) {
+        console.error('Error updating cart:', error);
+        res.status(500).json(`Internal Server Error: ${error}`);
+    }
+});
+
 
 
 module.exports = app; // <-- PASSPORT 

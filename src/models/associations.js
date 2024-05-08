@@ -12,6 +12,8 @@ const ReportedProduct = require('./ReportedProduct');
 const Shipping = require('./Shipping');
 const ShippingHistory = require('./ShippingHistory');
 const Order = require('./Order');
+const Cart = require('./Cart');   // CART
+const ProductCart = require('./ProductCart');
 
 // Define associations for Category model
 Product.belongsToMany(Category, { through: 'ProductCategory' });
@@ -81,6 +83,34 @@ Shipping.hasMany(Order, { foreignKey: 'shippingId' });
 // cada shipping addr puede tener/estar asociada a multiples ordenes. 
 
 
+// CART TABLE.
+// Associations
+Cart.belongsToMany(Product, {
+    through: ProductCart,
+    foreignKey: 'cartId',
+    otherKey: 'productId'
+});
+Product.belongsToMany(Cart, {
+    through: ProductCart,
+    foreignKey: 'productId',
+    otherKey: 'cartId'
+});
+
+ProductCart.belongsTo(Cart, { foreignKey: 'cartId' });
+ProductCart.belongsTo(Product, { foreignKey: 'productId' });
+Cart.hasMany(ProductCart, { foreignKey: 'cartId' });
+Product.hasMany(ProductCart, { foreignKey: 'productId' });
+
+// USER AND CART.
+// Define relationships between models
+
+// User and Cart
+User.hasMany(Cart, { foreignKey: 'userId' });
+Cart.belongsTo(User, { foreignKey: 'userId' });
+
+// Ensure all other existing relationships are correct and maintained as you already have them set up
+
+
 /*
 // relacion entre ShippingHistory y Shipping.
 //Shipping.hasMany(ShippingHistory, {foreignKey: 'shippingId'}); 
@@ -105,5 +135,3 @@ module.exports = {
     ShippingHistory,
     Order
 };
-
-
