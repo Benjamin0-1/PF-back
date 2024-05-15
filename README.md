@@ -2,7 +2,7 @@
 
 ## Overview
 
-PF-back is the backend component of an e-commerce application. It provides essential functionalities such as user authentication, product management, order processing, and user profile management. The project is built using Node.js.
+PF-back is the backend component of an e-commerce application. It provides essential functionalities such as user authentication, product management, order processing, and user profile management. The project is built using Node.js and Express.
 
 ## Features
 
@@ -10,6 +10,10 @@ PF-back is the backend component of an e-commerce application. It provides essen
 - **Product Management**: Create, update, and delete products.
 - **Order Processing**: Manage order creation, status updates, and history.
 - **User Management**: User profile updates and data handling.
+- **Password Recovery**: Allows users to reset their passwords securely.
+- **Two factor authentication**: Enhances security by requiring a second form of verification.
+- **Google Authentication**: Provides users with the option to log in using their Google account for added convenience and security.
+
 
 ## Future Improvements
 
