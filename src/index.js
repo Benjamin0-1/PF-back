@@ -50,7 +50,7 @@ const nodemailerOptions = {
     service: 'gmail',
     auth: {
         user: 'oliver125125@gmail.com',
-        pass: 'aiyp fvhl djxd rjny',
+        pass: 'aiyp fvhl djxd rjny', // <-- has been removed
     }
 };
 
