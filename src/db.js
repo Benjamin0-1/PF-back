@@ -1,6 +1,6 @@
 const { Sequelize } = require('sequelize');
 
-
+/*
 const sequelize = new Sequelize({
     dialect: 'mysql',
     host: 'localhost',
@@ -10,36 +10,18 @@ const sequelize = new Sequelize({
     logging: false
 });
 
-module.exports = sequelize;
+module.exports = sequelize; 
+*/
 
 
+//postgresql://user:tzaxNExrjEP1cx1UhHviabuBXGhPpbHG@dpg-cqf0sqhu0jms739ler4g-a.oregon-postgres.render.com/store_1p6o
 
-/*
-// DEPLOYED ON HEROKU.
 const sequelize = new Sequelize({
-  database: 'jwdy1f77ygcuoc3e',
-  username: 'k2m6tdfsi3wsepaa',
-  password: 'yo5mq7aib7mi9mas',
-  host: 'tk3mehkfmmrhjg0b.cbetxkdyhwsb.us-east-1.rds.amazonaws.com',
-  dialect: 'mysql',
-  dialectOptions: {
-    ssl: {
-      require: true, // This will enforce SSL
-      rejectUnauthorized: false // This option bypasses the verification of the certificate
-    }
-  },
-  logging: false
-}); */ // <-- old one, account was blocked.
-
-
-
-/*
-const sequelize = new Sequelize({
-  database: 'jwdy1f77ygcuoc3e',
-  username: 'k2m6tdfsi3wsepaa',
-  password: 'yo5mq7aib7mi9mas',
-  host: 'tk3mehkfmmrhjg0b.cbetxkdyhwsb.us-east-1.rds.amazonaws.com',
-  dialect: 'mysql',
+  database: 'store_1p6o',
+  username: 'user',
+  password: 'tzaxNExrjEP1cx1UhHviabuBXGhPpbHG',
+  host: 'dpg-cqf0sqhu0jms739ler4g-a.oregon-postgres.render.com',
+  dialect: 'postgres',
   dialectOptions: {
     ssl: {
       require: true,
@@ -47,7 +29,7 @@ const sequelize = new Sequelize({
     }
   },
   logging: false
-}); 
+});
 
 
-module.exports = sequelize; */
+module.exports = sequelize;  
