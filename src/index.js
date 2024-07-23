@@ -428,8 +428,8 @@ app.post('/create-checkout-session', isAuthenticated, isUserBanned, async (req, 
             payment_method_types: ['card'],
             line_items: items,
             mode: 'payment',
-            success_url: 'http://localhost:3000/paymenthistory', 
-            cancel_url: 'http://localhost:3000/ordercancelled', 
+            success_url: 'https://pf-front-chi.vercel.app/paymenthistory', 
+            cancel_url: 'https://pf-front-chi.vercel.app/ordercancelled', 
         });
 
         await PaymentHistory.bulkCreate(paymentHistoryData);
